@@ -1,0 +1,98 @@
+{% extends "checklist/base_checklist.html" %}
+{% block title %}Inicio — Check Rutinas Completitud{% endblock %}
+
+{% block content %}
+<!-- Breadcrumb -->
+<div class="text-sm text-gray-500 mb-4">
+  <a href="/dashboard" class="text-walmart-blue hover:underline">← Picker Hunt</a>
+  <span class="mx-1">/</span>
+  <span class="font-semibold text-gray-700">Check Rutinas Completitud</span>
+</div>
+
+<!-- Hero card — Walmart Chile style -->
+<div class="rounded-2xl overflow-hidden mb-6"
+     style="background: linear-gradient(135deg, #1a4cc8 0%, #0053e2 60%, #2a5de8 100%);">
+  <div class="px-8 py-7 flex items-center gap-6 relative">
+    <!-- Clipboard icon -->
+    <div class="bg-white/20 rounded-xl p-4 flex-shrink-0">
+      <div class="text-4xl">📋</div>
+    </div>
+    <div>
+      <div class="text-walmart-spark text-xs font-black tracking-widest uppercase mb-1">Walmart Chile</div>
+      <h1 class="text-white font-black text-2xl leading-tight">Check Rutinas<br>Completitud</h1>
+      <p class="text-blue-200 text-sm mt-1">Gestiona y registra las rutinas de tu turno en tiempo real.</p>
+    </div>
+    <!-- Decorative circles -->
+    <div class="absolute right-8 top-4 w-24 h-24 rounded-full bg-white/5"></div>
+    <div class="absolute right-20 bottom-2 w-14 h-14 rounded-full bg-white/5"></div>
+  </div>
+</div>
+
+<!-- Quick action -->
+<div class="flex items-center justify-between mb-4">
+  <h2 class="text-lg font-black text-gray-700">Checklists recientes</h2>
+  <a href="/checklist/nuevo"
+     class="bg-walmart-blue text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 transition">
+    + Nuevo Checklist
+  </a>
+</div>
+
+<!-- Recent sessions list -->
+{% if sesiones %}
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+  <table class="w-full text-sm" role="table">
+    <thead class="bg-gray-50 border-b border-gray-100">
+      <tr>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Local</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Fecha</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Sección</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Turno</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Estado</th>
+        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Acción</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-50">
+      {% for s in sesiones %}
+      <tr class="hover:bg-gray-50 transition">
+        <td class="px-4 py-3 font-semibold text-gray-800">{{ s.local.nombre if s.local else '—' }}</td>
+        <td class="px-4 py-3 text-gray-600">{{ s.fecha }}</td>
+        <td class="px-4 py-3 text-gray-600">{{ s.seccion.nombre if s.seccion else '—' }}</td>
+        <td class="px-4 py-3">
+          <span class="px-2 py-0.5 rounded-full text-xs font-bold
+            {% if s.turno == 'AM' %}bg-yellow-100 text-yellow-700
+            {% elif s.turno == 'PM' %}bg-blue-100 text-blue-700
+            {% else %}bg-gray-100 text-gray-600{% endif %}">
+            {{ s.turno }}
+          </span>
+        </td>
+        <td class="px-4 py-3">
+          {% if s.cerrado == 'si' %}
+          <span class="px-2 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-700">✅ Cerrado</span>
+          {% else %}
+          <span class="px-2 py-0.5 rounded-full text-xs font-bold bg-orange-100 text-orange-700">⏳ En curso</span>
+          {% endif %}
+        </td>
+        <td class="px-4 py-3">
+          {% if s.cerrado == 'si' %}
+          <a href="/checklist/{{ s.id }}/resumen"
+             class="text-xs text-walmart-blue hover:underline font-semibold">Ver resumen →</a>
+          {% else %}
+          <a href="/checklist/{{ s.id }}"
+             class="text-xs text-walmart-blue hover:underline font-semibold">Continuar →</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="text-center py-16 text-gray-400">
+  <div class="text-5xl mb-3">📋</div>
+  <p class="font-semibold">Aún no hay checklists registrados</p>
+  <a href="/checklist/nuevo" class="mt-3 inline-block bg-walmart-blue text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 transition">
+    Crear el primero
+  </a>
+</div>
+{% endif %}
+{% endblock %}

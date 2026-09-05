@@ -1,0 +1,197 @@
+{% extends "base.html" %}
+{% block title %}Usuarios — Picker Hunt{% endblock %}
+
+{% block content %}
+<div class="flex flex-col gap-6">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-black text-gray-800">👥 Gestión de Usuarios</h1>
+      <p class="text-sm text-gray-500 mt-0.5">{{ users | length }} usuarios registrados</p>
+    </div>
+    <button onclick="document.getElementById('modal-user').classList.remove('hidden')"
+      class="bg-walmart-blue text-white px-4 py-2 rounded-lg font-semibold text-sm hover:bg-blue-700 transition"
+      aria-label="Crear usuario">
+      ➕ Nuevo Usuario
+    </button>
+  </div>
+
+  <!-- Users Table -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm" role="table">
+        <thead class="bg-walmart-blue text-white">
+          <tr>
+            <th class="px-4 py-3 text-left font-semibold">Nombre</th>
+            <th class="px-4 py-3 text-left font-semibold">Usuario</th>
+            <th class="px-4 py-3 text-left font-semibold">Correo</th>
+            <th class="px-4 py-3 text-left font-semibold">Rol</th>
+            <th class="px-4 py-3 text-left font-semibold">Tienda</th>
+            <th class="px-4 py-3 text-left font-semibold">Estado</th>
+            <th class="px-4 py-3 text-left font-semibold">Acciones</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-50">
+          {% for u in users %}
+          <tr class="hover:bg-gray-50 transition">
+            <td class="px-4 py-3 font-medium text-gray-800">{{ u.name }}</td>
+            <td class="px-4 py-3 font-mono text-gray-600">{{ u.username }}</td>
+            <td class="px-4 py-3 text-gray-500 text-xs">
+              {% if u.email %}
+                <span class="font-mono">{{ u.email }}</span>
+              {% else %}
+                <span class="text-gray-300 italic">sin correo</span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3">
+              <span class="px-2 py-0.5 rounded-full text-xs font-bold role-badge-{{ u.role }}">{{ u.role | upper }}</span>
+            </td>
+            <td class="px-4 py-3">
+              <span class="px-2 py-0.5 rounded-full text-xs font-bold
+                {% if u.store == '96' %}bg-walmart-spark text-gray-900{% else %}bg-blue-100 text-blue-800{% endif %}">
+                L{{ u.store or '929' }}
+              </span>
+            </td>
+            <td class="px-4 py-3">
+              <span class="px-2 py-0.5 rounded-full text-xs font-bold
+                {% if u.status == 'activo' %}bg-green-100 text-green-700{% else %}bg-gray-100 text-gray-500{% endif %}">
+                {{ u.status }}
+              </span>
+            </td>
+            <td class="px-4 py-3 flex gap-2">
+              <button onclick="openEditModal({{ u.id }}, '{{ u.name }}', '{{ u.username }}', '{{ u.role }}', '{{ u.status }}', '{{ u.email or '' }}', '{{ u.store or '929' }}')"
+                class="text-xs px-3 py-1 border border-walmart-blue text-walmart-blue rounded hover:bg-blue-50 transition"
+                aria-label="Editar {{ u.name }}">
+                Editar
+              </button>
+              {% if u.id != current_user.id %}
+              <form method="post" action="/admin/users/{{ u.id }}/delete"
+                    onsubmit="return confirm('¿Eliminar a {{ u.name }}?')">
+                <button type="submit"
+                  class="text-xs px-3 py-1 border border-red-300 text-red-600 rounded hover:bg-red-50 transition"
+                  aria-label="Eliminar {{ u.name }}">
+                  🗑 Eliminar
+                </button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7" class="px-4 py-8 text-center text-gray-400">No hay usuarios registrados</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<!-- Modal: Create User -->
+<div id="modal-user" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+     role="dialog" aria-modal="true" aria-labelledby="modal-user-title">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+    <div class="flex items-center justify-between mb-4">
+      <h2 id="modal-user-title" class="text-lg font-black text-gray-800">Nuevo Usuario (Local {{ current_store }})</h2>
+      <button onclick="document.getElementById('modal-user').classList.add('hidden')"
+        class="text-gray-400 hover:text-gray-600 text-2xl leading-none" aria-label="Cerrar">&times;</button>
+    </div>
+    <form method="post" action="/admin/users/create" class="flex flex-col gap-3">
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">Nombre completo <span class="text-red-500">*</span></label>
+        <input name="name" type="text" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-walmart-blue" placeholder="Juan Pérez"/>
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">Correo electrónico</label>
+        <input name="email" type="email" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-walmart-blue" placeholder="juan@correo.com"/>
+        <p class="text-xs text-gray-400 mt-0.5">Necesario para recuperación de contraseña</p>
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">Usuario <span class="text-red-500">*</span></label>
+        <input name="username" type="text" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-walmart-blue" placeholder="juan.perez"/>
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">Contraseña <span class="text-red-500">*</span></label>
+        <input name="password" type="password" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-walmart-blue"/>
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">Rol <span class="text-red-500">*</span></label>
+        <select name="role" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-walmart-blue">
+          <option value="buscador">Buscador</option>
+          <option value="shopper">Shopper</option>
+          <option value="subgerente">Subgerente</option>
+          <option value="admin">Administrador</option>
+        </select>
+      </div>
+      <div class="flex gap-3 pt-2">
+        <button type="button" onclick="document.getElementById('modal-user').classList.add('hidden')"
+          class="flex-1 border border-gray-300 text-gray-700 py-2 rounded-lg font-semibold text-sm hover:bg-gray-50 transition">Cancelar</button>
+        <button type="submit"
+          class="flex-1 bg-walmart-blue text-white py-2 rounded-lg font-semibold text-sm hover:bg-blue-700 transition">Crear</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: Edit User -->
+<div id="modal-edit" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+     role="dialog" aria-modal="true" aria-labelledby="modal-edit-title">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+    <div class="flex items-center justify-between mb-4">
+      <h2 id="modal-edit-title" class="text-lg font-black text-gray-800">✏️ Editar Usuario</h2>
+      <button onclick="document.getElementById('modal-edit').classList.add('hidden')"
+        class="text-gray-400 hover:text-gray-600 text-2xl leading-none" aria-label="Cerrar">&times;</button>
+    </div>
+    <form id="form-edit" method="post" class="flex flex-col gap-3">
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">Nombre completo</label>
+        <input id="edit-name" name="name" type="text" required class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-walmart-blue"/>
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">Correo electrónico</label>
+        <input id="edit-email" name="email" type="email" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-walmart-blue" placeholder="juan@correo.com"/>
+        <p class="text-xs text-gray-400 mt-0.5">Necesario para recuperación de contraseña</p>
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">Rol</label>
+        <select id="edit-role" name="role" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-walmart-blue">
+          <option value="buscador">Buscador</option>
+          <option value="shopper">Shopper</option>
+          <option value="subgerente">Subgerente</option>
+          <option value="admin">Administrador</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">Estado</label>
+        <select id="edit-status" name="status" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-walmart-blue">
+          <option value="activo">Activo</option>
+          <option value="inactivo">Inactivo</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">Nueva contraseña <span class="text-gray-400 font-normal">(dejar vacío para no cambiar)</span></label>
+        <input name="password" type="password" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-walmart-blue"/>
+      </div>
+      <div class="flex gap-3 pt-2">
+        <button type="button" onclick="document.getElementById('modal-edit').classList.add('hidden')"
+          class="flex-1 border border-gray-300 text-gray-700 py-2 rounded-lg font-semibold text-sm hover:bg-gray-50 transition">Cancelar</button>
+        <button type="submit"
+          class="flex-1 bg-walmart-blue text-white py-2 rounded-lg font-semibold text-sm hover:bg-blue-700 transition">Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+function openEditModal(id, name, username, role, status, email, store) {
+  document.getElementById('edit-name').value = name;
+  document.getElementById('edit-role').value = role;
+  document.getElementById('edit-status').value = status;
+  document.getElementById('edit-email').value = email || '';
+  document.getElementById('form-edit').action = '/admin/users/' + id + '/edit';
+  document.getElementById('modal-edit').classList.remove('hidden');
+}
+</script>
+{% endblock %}

@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>{% block title %}Check Rutinas Completitud{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            walmart: { blue: '#0053e2', spark: '#ffc220', red: '#ea1100', green: '#2a8703' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    .role-badge-admin    { background:#0053e2; color:#fff; }
+    .role-badge-buscador { background:#2a8703; color:#fff; }
+    .role-badge-shopper  { background:#ffc220; color:#1a1a1a; }
+  </style>
+</head>
+<body class="bg-gray-100 min-h-screen font-sans">
+
+  <!-- Navbar — match Walmart Chile design -->
+  <nav class="bg-walmart-blue shadow-md">
+    <!-- Yellow accent bar -->
+    <div class="h-1 bg-walmart-spark w-full"></div>
+    <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+      <!-- Logo + Title -->
+      <a href="/checklist" class="flex items-center gap-3">
+        <div class="bg-walmart-spark rounded-lg w-9 h-9 flex items-center justify-center shadow">
+          <span class="text-walmart-blue font-black text-lg">★</span>
+        </div>
+        <div class="leading-tight">
+          <div class="text-white font-black text-base leading-none">Check Rutinas Completitud</div>
+          <div class="text-blue-200 text-xs">Walmart Chile</div>
+        </div>
+      </a>
+      <!-- Nav links -->
+      <div class="flex items-center gap-1">
+        <a href="/checklist/nuevo"
+           class="text-white hover:bg-blue-700 px-3 py-2 rounded text-sm font-semibold transition">
+          + Nuevo
+        </a>
+        <a href="/checklist/admin/resumen"
+           class="text-white hover:bg-blue-700 px-3 py-2 rounded text-sm font-semibold transition">
+          Resumen
+        </a>
+        <a href="/dashboard"
+           class="text-white hover:bg-blue-700 px-3 py-2 rounded text-sm font-semibold transition">
+          Inicio
+        </a>
+        {% if current_user is defined and current_user and current_user.role == 'admin' %}
+        <a href="/checklist/config"
+           class="text-white hover:bg-blue-700 px-3 py-2 rounded text-sm font-semibold transition">
+          Config
+        </a>
+        {% endif %}
+        <a href="/logout"
+           class="ml-2 bg-white text-walmart-blue px-3 py-1.5 rounded text-xs font-bold hover:bg-gray-100 transition">
+          Salir
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Content -->
+  <main class="max-w-6xl mx-auto px-4 py-6">
+    {% block content %}{% endblock %}
+  </main>
+
+  {% block extra_scripts %}{% endblock %}
+</body>
+</html>

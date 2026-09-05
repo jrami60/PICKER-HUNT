@@ -1,0 +1,627 @@
+{# ─────────────────────────────────────────────────────────────────────────────
+   Partial: items_list.html
+   Context required: items, current_user, now
+   Rendered standalone for HTMX swaps AND included in dashboard.html
+───────────────────────────────────────────────────────────────────────────── #}
+
+<!-- Stats -->
+{% set pending  = items | selectattr('status','eq','pendiente')     | list %}
+{% set found    = items | selectattr('status','eq','encontrado')    | list %}
+{% set insala   = items | selectattr('status','eq','en_sala')       | list %}
+{% set notfound = items | selectattr('status','eq','no_encontrado') | list %}
+<div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+  <div class="bg-yellow-50 border border-yellow-200 rounded-xl p-3 text-center">
+    <div class="text-2xl font-black text-yellow-700">{{ pending | length }}</div>
+    <div class="text-xs text-yellow-600 font-semibold mt-0.5">Pendientes</div>
+  </div>
+  <div class="bg-teal-50 border border-teal-200 rounded-xl p-3 text-center">
+    <div class="text-2xl font-black text-teal-700">{{ insala | length }}</div>
+    <div class="text-xs text-teal-600 font-semibold mt-0.5">En Sala</div>
+  </div>
+  <div class="bg-green-50 border border-green-200 rounded-xl p-3 text-center">
+    <div class="text-2xl font-black text-green-700">{{ found | length }}</div>
+    <div class="text-xs text-green-600 font-semibold mt-0.5">Encontrados</div>
+  </div>
+  <div class="bg-red-50 border border-red-200 rounded-xl p-3 text-center">
+    <div class="text-2xl font-black text-red-700">{{ notfound | length }}</div>
+    <div class="text-xs text-red-600 font-semibold mt-0.5">No encontrados</div>
+  </div>
+</div>
+
+{% if items %}
+
+{# ══ FILTROS SHOPPER ══════════════════════════════════════════════════════ #}
+{% if current_user.role == 'shopper' %}
+<div class="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Filtrar items">
+  {% for label, val, emoji, ring in [
+      ('Todos',         'all',          '', 'ring-gray-300'),
+      ('Pendientes',    'pendiente',    '⏳', 'ring-yellow-400'),
+      ('En Sala',       'en_sala',      '', 'ring-teal-500'),
+      ('Encontrados',   'encontrado',   '', 'ring-green-500'),
+      ('No encontrados','no_encontrado','', 'ring-red-500'),
+  ] %}
+  <button type="button"
+          role="tab"
+          data-filter="{{ val }}"
+          onclick="setFilter('{{ val }}')"
+          class="filter-tab shrink-0 px-3 py-1.5 rounded-full text-xs font-bold border border-gray-200
+                 bg-white text-gray-600 hover:bg-gray-100 transition
+                 {% if loop.first %}ring-2 {{ ring }} bg-gray-100{% endif %}">
+    {{ emoji }} {{ label }}
+  </button>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# ══ BUSCADOR / SHOPPER — vista compacta ═══════════════════════════════════ #}
+{% if current_user.role in ('buscador', 'shopper') %}
+<div class="rounded-xl overflow-hidden border border-gray-200 bg-white divide-y divide-gray-100">
+  {% for item in items %}
+  {% set sl      = item._seconds_left %}
+  {% set urgent  = sl < 300 and item.status == 'pendiente' %}
+  {% set is_mine = item.claimed_by_id == current_user.id %}
+  {% set is_busy = item.claimed_by_id is not none and not is_mine %}
+  {% set is_new  = item._is_new %}
+
+  <div class="flex items-center gap-2 px-3 py-2.5 transition-colors
+    {% if is_new %}bg-blue-50 item-new{% elif urgent %}bg-red-50
+    {% elif is_mine %}bg-blue-50{% elif is_busy %}bg-yellow-50{% endif %}"
+       data-status="{{ item.status }}"
+       data-item-id="{{ item.id }}"
+       role="button" tabindex="0"
+       onclick="openDetail({{ item.id }})"
+       onkeydown="if(event.key==='Enter')openDetail({{ item.id }})">
+
+    <!-- Priority badge (quantity) -->
+    <span class="text-xs font-black rounded px-1 py-0.5 shrink-0
+      {% if item.quantity >= 5 %}bg-red-100 text-red-700
+      {% elif item.quantity >= 2 %}bg-yellow-100 text-yellow-700
+      {% else %}bg-gray-100 text-gray-500{% endif %}">
+      ×{{ item.quantity }}
+    </span>
+
+    <!-- Code -->
+    <span class="font-mono font-black text-walmart-blue text-sm w-20 shrink-0">{{ item.code }}</span>
+
+    <!-- Description + shopper solicitante -->
+    <div class="flex-1 flex flex-col min-w-0">
+      <span class="text-sm text-gray-700 truncate">{{ item.description }}</span>
+      {% if item.creator %}
+      <span class="text-xs text-blue-500 font-semibold truncate">🛒 {{ item.creator.name }}</span>
+      {% endif %}
+    </div>
+
+    <!-- Foto indicator -->
+    {% if item.image_data %}<span class="text-base shrink-0">📷</span>{% endif %}
+
+    <!-- Timer + urgency badge -->
+    {% if item.status == 'pendiente' %}
+    {% set expired = sl == 0 %}
+    <span class="font-mono text-xs font-bold shrink-0
+          {% if expired %}text-red-700
+          {% elif urgent %}text-red-600
+          {% else %}text-gray-400{% endif %}"
+          data-timer="{{ sl }}" id="timer-{{ item.id }}">
+      {{ '%02d' % (sl // 60) }}:{{ '%02d' % (sl % 60) }}
+    </span>
+    {# Badge estático (Jinja); el JS agrega uno igual cuando el timer llega a 0 en vivo #}
+    {% if expired %}
+    <span class="text-xs text-red-700 font-black shrink-0 whitespace-nowrap">🚨 Agotado</span>
+    {% elif urgent %}
+    <span class="text-xs text-red-500 font-bold shrink-0">⚠️ Urgente</span>
+    {% endif %}
+    {% else %}
+    {% if item.status == 'encontrado' %}
+    <span class="text-sm shrink-0">✅</span>
+    {% else %}
+    {# no_encontrado: muestra cuenta regresiva hasta desaparecer #}
+    <span class="text-xs text-red-500 font-bold shrink-0 whitespace-nowrap">
+      ❌
+      {% if item._disappears_in is not none %}
+      <span class="text-gray-400"
+            title="Desaparece en {{ (item._disappears_in // 60) }}m {{ (item._disappears_in % 60) }}s">
+        {{ item._disappears_in // 60 }}m
+      </span>
+      {% endif %}
+    </span>
+    {% endif %}
+    {% endif %}
+
+    <!-- Claim badge / button (solo buscador) -->
+    {% if current_user.role == 'buscador' and item.status == 'pendiente' %}
+      {% if is_mine %}
+      <span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-bold shrink-0">🔍 Yo</span>
+      {% elif is_busy %}
+      <span class="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full font-semibold shrink-0
+                   max-w-[80px] truncate" title="{{ item.claimer.name }}">⚠️ {{ item.claimer.name }}</span>
+      {% else %}
+      <form method="post" action="/items/{{ item.id }}/claim"
+            onclick="event.stopPropagation()" class="shrink-0">
+        <button type="submit"
+          class="text-xs bg-walmart-blue text-white px-2.5 py-1 rounded-full font-bold hover:bg-blue-700 transition">
+          🔍 Buscando
+        </button>
+      </form>
+      {% endif %}
+    {% endif %}
+
+    <!-- Shopper: badge de acción rápida en la fila -->
+    {% if current_user.role == 'shopper' %}
+      {% if item.status == 'pendiente' %}
+        {% set expired = sl == 0 %}
+        <span class="text-xs shrink-0 font-bold
+          {% if expired %}bg-red-100 text-red-700{% else %}bg-orange-100 text-orange-700{% endif %}
+          px-2 py-0.5 rounded-full">
+          {{ '🚨 Protocolo' if expired else '📋 Ver' }}
+        </span>
+      {% elif item.status == 'encontrado' %}
+        <span class="text-xs shrink-0 font-bold bg-green-100 text-green-700 px-2 py-0.5 rounded-full">📦 Confirmar</span>
+      {% endif %}
+    {% endif %}
+  </div>
+
+  {# Hidden detail template — cloned into modal by JS #}
+  <template id="detail-{{ item.id }}">
+    <div class="flex flex-col gap-4">
+      <div class="flex items-start justify-between">
+        <div>
+          <p class="text-xs text-gray-400 font-mono">Código · ×{{ item.quantity }}</p>
+          <p class="text-3xl font-black text-walmart-blue font-mono tracking-widest">{{ item.code }}</p>
+        </div>
+        <span class="px-2 py-1 rounded-full text-xs font-bold status-{{ item.status }}">
+          {% if item.status == 'pendiente' %}⏳ Pendiente
+          {% elif item.status == 'encontrado' %} Encontrado
+          {% elif item.status == 'en_sala' %} En Sala
+          {% else %} No encontrado{% endif %}
+        </span>
+      </div>
+
+      <div class="bg-gray-50 rounded-lg px-3 py-2">
+        <p class="text-sm text-gray-700 font-medium">{{ item.description }}</p>
+      </div>
+
+      {% if item.creator %}
+      <div class="flex items-center gap-2">
+        <span class="text-lg">🛒</span>
+        <div>
+          <p class="text-xs text-gray-400 font-semibold uppercase tracking-wide">Solicitado por</p>
+          <p class="text-sm font-black text-walmart-blue">{{ item.creator.name }}</p>
+        </div>
+      </div>
+      {% endif %}
+
+      {% if item.image_data %}
+      <div>
+        <img src="/items/{{ item.id }}/image" alt="Foto del producto"
+             class="w-full rounded-xl object-cover max-h-64 border border-gray-100 cursor-zoom-in"
+             onclick="openImg(this.src)" loading="lazy"/>
+        <p class="text-xs text-gray-400 mt-1 text-center">Toca para ver completa</p>
+      </div>
+      {% endif %}
+
+      {% if item.status == 'pendiente' %}
+      {% set expired = sl == 0 %}
+      <div>
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-xs text-gray-500 font-semibold">⏱ Tiempo restante</span>
+          <span class="font-mono text-sm font-bold
+            {% if expired %}text-red-700
+            {% elif urgent %}text-red-600
+            {% else %}text-gray-700{% endif %}"
+                data-timer="{{ sl }}" id="timer-modal-{{ item.id }}">
+            {{ '%02d' % (sl // 60) }}:{{ '%02d' % (sl % 60) }}
+          </span>
+        </div>
+        {# ─ Barra tri-color: verde 10-15 min | amarillo 5-9:59 | rojo 0-4:59 ─ #}
+        <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
+          <div class="h-full rounded-full
+            {% if sl >= 600 %}bg-green-500
+            {% elif sl >= 300 %}bg-yellow-400
+            {% else %}bg-red-500{% endif %}"
+               style="width:{{ [100,(sl/900*100)|int]|min }}%" id="bar-modal-{{ item.id }}"></div>
+        </div>
+      </div>
+
+      {# Banner de urgencia / tiempo agotado en el modal #}
+      {% if expired %}
+      <div class="bg-red-50 border border-red-400 rounded-xl px-4 py-3 text-red-700 font-bold text-sm text-center animate-pulse">
+        🚨 ¡Tiempo agotado! El Shopper debe confirmar Cumplo Protocolo.
+      </div>
+      {% elif urgent %}
+      <div class="bg-orange-50 border border-orange-300 rounded-xl px-4 py-3 text-orange-700 font-semibold text-sm text-center">
+        ⚠️ ¡Urgente! Menos de 5 minutos restantes.
+      </div>
+      {% endif %}
+
+      {# ── Acciones del BUSCADOR en el modal ────────────────────────────────── #}
+      {% if current_user.role == 'buscador' %}
+
+      <!-- Claim actions -->
+      <div class="flex gap-2">
+        {% if is_mine %}
+        <form method="post" action="/items/{{ item.id }}/unclaim" class="flex-1">
+          <button class="w-full border border-blue-300 text-blue-600 py-2 rounded-lg text-sm font-semibold hover:bg-blue-50 transition">
+            🔄 Liberar item
+          </button>
+        </form>
+        {% elif not is_busy %}
+        <form method="post" action="/items/{{ item.id }}/claim" class="flex-1">
+          <button class="w-full bg-walmart-blue text-white py-2 rounded-lg text-sm font-bold hover:bg-blue-700 transition">
+            🔍 Buscando este item
+          </button>
+        </form>
+        {% else %}
+        <div class="flex-1 bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2 text-sm text-yellow-700 text-center font-semibold">
+          ⚠️ {{ item.claimer.name }} lo está buscando
+        </div>
+        {% endif %}
+      </div>
+
+      <!-- Respond form -->
+      <div class="border-t border-gray-100 pt-3">
+        <p class="text-xs font-semibold text-gray-500 mb-2">📝 Registrar resultado</p>
+        <form method="post" action="/items/{{ item.id }}/respond"
+              enctype="multipart/form-data" class="flex flex-col gap-2">
+          <textarea name="comment" rows="2" placeholder="Comentario opcional..."
+            class="text-sm border border-gray-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-walmart-blue"
+            aria-label="Comentario"></textarea>
+          <!-- Foto opcional del buscador.
+               ⚠️  NO usar capture="environment" aquí: en iOS Safari ese atributo
+               recarga la página completa al volver de la cámara, destruye el modal
+               y hace que parezca que el shopper cambió. El picker nativo del SO
+               ya ofrece cámara + galería sin recargar la página. -->
+          <div>
+            <p class="text-xs text-gray-500 font-semibold mb-1">📷 Foto del producto (opcional)</p>
+            <label class="flex items-center gap-2 cursor-pointer border border-gray-200
+                          rounded-lg px-3 py-2 bg-white hover:bg-gray-50 transition">
+              <span class="text-base shrink-0">📷</span>
+              <span class="text-xs text-gray-600 font-semibold">Seleccionar foto</span>
+              <input type="file" name="image" accept="image/*" class="sr-only"
+                     onchange="previewRespondImg(this)"
+                     aria-label="Foto del producto"/>
+            </label>
+            <img class="respond-preview hidden mt-2 w-full rounded-lg object-cover max-h-32
+                        border border-gray-200"
+                 src="" alt="Preview de foto"/>
+          </div>
+          <div class="flex gap-2 flex-wrap">
+            <button name="resultado" value="encontrado"
+              class="flex-1 bg-green-600 text-white py-2 rounded-lg font-bold text-sm hover:bg-green-700 transition min-w-[100px]">
+               Encontrado
+            </button>
+            <button name="resultado" value="en_sala"
+              class="flex-1 bg-teal-600 text-white py-2 rounded-lg font-bold text-sm hover:bg-teal-700 transition min-w-[100px]">
+               En Sala
+            </button>
+            <button name="resultado" value="no_encontrado"
+              class="flex-1 bg-red-600 text-white py-2 rounded-lg font-bold text-sm hover:bg-red-700 transition min-w-[100px]">
+               No encontrado
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {# ── Acciones del SHOPPER en el modal ───────────────────────────────────── #}
+      {% elif current_user.role == 'shopper' %}
+
+      <!-- Info de quién está buscando -->
+      {% if item.claimed_by_id %}
+      <div class="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-sm text-blue-700 font-semibold">
+        🔍 Buscando: {{ item.claimer.name }}
+      </div>
+      {% endif %}
+
+      <!-- Cumplo Protocolo -->
+      <form method="post" action="/items/{{ item.id }}/cumple-protocolo"
+            onsubmit="return confirm('¿Confirmar cumplimiento de protocolo para este item?')">
+        <button type="submit"
+          class="w-full py-2.5 rounded-lg text-sm font-bold transition
+            {% if expired %}bg-red-600 hover:bg-red-700 text-white ring-2 ring-red-400
+            {% else %}bg-orange-500 hover:bg-orange-600 text-white{% endif %}">
+          ✅ Cumplo Protocolo
+        </button>
+      </form>
+
+      <!-- Cancelar solicitud (solo el shopper que la creó, item pendiente) -->
+      {% if item.created_by_id == current_user.id %}
+      <form method="post" action="/items/{{ item.id }}/cancel"
+            onsubmit="return confirm('¿Cancelar esta solicitud? Se eliminará del sistema.')">
+        <button type="submit"
+          class="w-full py-2.5 rounded-lg text-sm font-bold border border-gray-300
+                 bg-white text-gray-600 hover:bg-red-50 hover:border-red-300 hover:text-red-700 transition">
+          🚫 Cancelar solicitud
+        </button>
+      </form>
+      {% endif %}
+
+      {% endif %}{# fin acciones por rol #}
+      {% endif %}{# fin status == pendiente #}
+
+      {# ── Confirmar envío (shopper, ítem encontrado o en sala) ──────────────── #}
+      {% if current_user.role == 'shopper' and item.status in ('encontrado', 'en_sala') %}
+      <div class="border-t border-gray-100 pt-3">
+        <p class="text-xs font-semibold text-gray-500 mb-2">📦 Confirmar envío</p>
+        {% if item.comment %}
+        <p class="text-xs text-gray-500 mb-2">💬 {{ item.comment }}</p>
+        {% endif %}
+        <form method="post" action="/items/{{ item.id }}/confirm"
+              class="flex flex-col gap-2" onsubmit="handleSingleSubmit(this)">
+          <input name="shipping_info" type="text" placeholder="Info de envío (opcional)"
+            class="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
+            aria-label="Info de envío"/>
+          <button type="submit"
+            class="w-full bg-walmart-blue text-white py-2.5 rounded-lg font-bold text-sm hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
+            🚀 Confirmar envío
+          </button>
+        </form>
+      </div>
+      {% endif %}
+    </div>
+  </template>
+  {% endfor %}
+</div>
+
+{# ══ ADMIN — lista ══════════════════════════════════════════════════════════ #}
+{% else %}
+
+{# ─ Barra de selección múltiple ─ #}
+<div id="bulk-bar"
+     class="hidden items-center justify-between gap-3
+            bg-walmart-blue text-white px-4 py-2.5 rounded-xl">
+  <div class="flex items-center gap-3">
+    <input type="checkbox" id="chk-select-all"
+           onchange="adminSelectAll(this.checked)"
+           class="w-4 h-4 rounded accent-white cursor-pointer"
+           aria-label="Seleccionar todos"/>
+    <span class="text-sm font-bold" id="bulk-count">0 seleccionados</span>
+  </div>
+  <button type="button" onclick="adminDeleteSelected()"
+          class="flex items-center gap-1.5 bg-red-600 hover:bg-red-700
+                 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition">
+    🗑️ Eliminar seleccionados
+  </button>
+</div>
+
+{# Formulario oculto para bulk-delete — el JS rellena los IDs antes de submit #}
+<form id="form-bulk-delete" method="post" action="/items/bulk-delete" class="hidden"></form>
+
+<div class="rounded-xl overflow-hidden border border-gray-200 bg-white divide-y divide-gray-100">
+  {% for item in items %}
+  {% set sl      = item._seconds_left %}
+  {% set urgent  = sl < 300 and item.status == 'pendiente' %}
+  {% set expired = sl == 0 and item.status == 'pendiente' %}
+  {% set is_new  = item._is_new %}
+
+  {# ─ Fila principal ─ #}
+  <div class="flex flex-col gap-0
+    {% if is_new %}bg-blue-50 item-new{% elif expired %}bg-red-50{% elif urgent %}bg-orange-50{% endif %}">
+
+    <div class="flex items-center gap-2 px-3 py-2.5">
+
+      {# Checkbox multi-select #}
+      <input type="checkbox"
+             class="admin-item-chk w-4 h-4 rounded accent-walmart-blue cursor-pointer shrink-0"
+             data-id="{{ item.id }}"
+             onchange="adminCheckChanged()"
+             aria-label="Seleccionar item {{ item.code }}"/>
+
+      {# Cantidad #}
+      <span class="text-xs font-black rounded px-1.5 py-0.5 shrink-0
+        {% if item.quantity >= 5 %}bg-red-100 text-red-700
+        {% elif item.quantity >= 2 %}bg-yellow-100 text-yellow-700
+        {% else %}bg-gray-100 text-gray-500{% endif %}">
+        ×{{ item.quantity }}
+      </span>
+
+      {# Código #}
+      <span class="font-mono font-black text-walmart-blue text-sm w-20 shrink-0">{{ item.code }}</span>
+
+      {# Descripción + buscador #}
+      <div class="flex-1 flex flex-col min-w-0">
+        <span class="text-sm text-gray-800 font-medium truncate">{{ item.description }}</span>
+        {% if item.claimed_by_id %}
+        <span class="text-xs text-blue-500 font-semibold truncate">🔍 {{ item.claimer.name }}</span>
+        {% endif %}
+        {% if item.creator %}
+        <span class="text-xs text-gray-400 truncate">🛒 {{ item.creator.name }}</span>
+        {% endif %}
+      </div>
+
+      {# Foto #}
+      {% if item.image_data %}
+      <img src="/items/{{ item.id }}/image" alt="Foto"
+           class="w-10 h-10 rounded-lg object-cover border border-gray-100 shrink-0 cursor-zoom-in"
+           onclick="openImg(this.src)" loading="lazy"/>
+      {% endif %}
+
+      {# Status badge + hora de respuesta #}
+      <div class="flex flex-col items-end shrink-0">
+        <span class="px-2 py-0.5 rounded-full text-xs font-bold status-{{ item.status }}">
+          {% if item.status == 'pendiente' %}⏳ Pendiente
+          {% elif item.status == 'encontrado' %} Encontrado
+          {% elif item.status == 'en_sala' %} En Sala
+          {% else %} No enc.{% endif %}
+        </span>
+        {% if item.status == 'encontrado' and item.responded_at %}
+        <time class="text-xs text-green-600 font-mono font-bold mt-0.5 local-time"
+              data-utc="{{ item.responded_at.isoformat() }}">
+          {{ item.responded_at.strftime('%H:%M') }}
+        </time>
+        {% endif %}
+      </div>
+
+      {# Timer (solo pendiente) #}
+      {% if item.status == 'pendiente' %}
+      <span class="font-mono text-xs font-bold shrink-0
+            {% if expired %}text-red-700{% elif urgent %}text-red-600{% else %}text-gray-400{% endif %}"
+            data-timer="{{ sl }}" id="timer-{{ item.id }}">
+        {{ '%02d' % (sl // 60) }}:{{ '%02d' % (sl % 60) }}
+      </span>
+      {% if expired %}
+      <span class="text-xs text-red-700 font-black shrink-0">🚨</span>
+      {% endif %}
+      {% endif %}
+
+      {# Toggle de acciones #}
+      <button type="button"
+              onclick="toggleAdminActions({{ item.id }})"
+              aria-expanded="false"
+              aria-controls="admin-actions-{{ item.id }}"
+              class="shrink-0 text-gray-400 hover:text-walmart-blue transition"
+              aria-label="Acciones">
+        ⚙️
+      </button>
+    </div>{# fin fila principal #}
+
+    {# ─ Panel de acciones admin (colapsable) ─ #}
+    <div id="admin-actions-{{ item.id }}"
+         class="hidden flex-col gap-2 px-3 pb-3 pt-1 bg-gray-50 border-t border-gray-100">
+
+      {# Barra de progreso si pendiente #}
+      {% if item.status == 'pendiente' %}
+      <div class="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+        <div class="h-full rounded-full
+          {% if sl >= 600 %}bg-green-500
+          {% elif sl >= 300 %}bg-yellow-400
+          {% else %}bg-red-500{% endif %}"
+             style="width:{{ [100,(sl/900*100)|int]|min }}%" id="bar-{{ item.id }}"></div>
+      </div>
+      {% endif %}
+
+      {% if item.comment %}
+      <p class="text-xs text-gray-500">💬 {{ item.comment }}</p>
+      {% endif %}
+
+      {# ── Marcar como encontrado / no encontrado (pendiente) ── #}
+      {% if item.status == 'pendiente' %}
+      <form method="post" action="/items/{{ item.id }}/respond" class="flex gap-2" enctype="multipart/form-data">
+        <textarea name="comment" rows="1" placeholder="Comentario (opcional)"
+          class="flex-1 text-xs border border-gray-200 rounded px-2 py-1 resize-none focus:outline-none focus:ring-1 focus:ring-walmart-blue"
+          aria-label="Comentario"></textarea>
+        <div class="flex flex-col gap-1 shrink-0">
+          <button name="resultado" value="encontrado"
+            class="bg-green-600 text-white px-3 py-1 rounded text-xs font-bold hover:bg-green-700 transition">
+             Encontrado
+          </button>
+          <button name="resultado" value="en_sala"
+            class="bg-teal-600 text-white px-3 py-1 rounded text-xs font-bold hover:bg-teal-700 transition">
+             En Sala
+          </button>
+          <button name="resultado" value="no_encontrado"
+            class="bg-red-600 text-white px-3 py-1 rounded text-xs font-bold hover:bg-red-700 transition">
+             No encontrado
+          </button>
+        </div>
+      </form>
+
+      <div class="flex gap-2">
+        <form method="post" action="/items/{{ item.id }}/cumple-protocolo"
+              onsubmit="return confirm('¿Confirmar cumplimiento de protocolo?')" class="flex-1">
+          <button type="submit"
+            class="w-full py-1.5 rounded text-xs font-bold transition
+              {% if expired %}bg-red-600 hover:bg-red-700 text-white ring-1 ring-red-400
+              {% else %}bg-orange-500 hover:bg-orange-600 text-white{% endif %}">
+            ✅ Cumplo Protocolo
+          </button>
+        </form>
+        <form method="post" action="/items/{{ item.id }}/force-close"
+              onsubmit="return confirm('¿Forzar cierre?')" class="flex-1">
+          <button type="submit"
+            class="w-full border border-red-300 text-red-600 py-1.5 rounded text-xs font-semibold hover:bg-red-50 transition">
+            🔒 Forzar cierre
+          </button>
+        </form>
+      </div>
+      {% endif %}
+
+      {# ── Confirmar envío (encontrado / en sala) ── #}
+      {% if item.status in ('encontrado', 'en_sala') %}
+      <form method="post" action="/items/{{ item.id }}/confirm" class="flex gap-2">
+        <input name="shipping_info" type="text" placeholder="Info de envío (opcional)"
+          class="flex-1 text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-green-500"/>
+        <button type="submit"
+          class="shrink-0 bg-walmart-blue text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-blue-700 transition">
+          🚀 Confirmar envío
+        </button>
+      </form>
+      {% endif %}
+
+      {# ── Eliminar item ── #}
+      <form method="post" action="/items/{{ item.id }}/delete"
+            onsubmit="return confirm('¿Eliminar este item permanentemente? Esta acción no se puede deshacer.')">
+        <button type="submit"
+          class="w-full bg-red-50 border border-red-300 text-red-700 py-1.5 rounded text-xs font-bold hover:bg-red-100 transition">
+          🗑️ Eliminar item
+        </button>
+      </form>
+
+    </div>{# fin admin-actions #}
+  </div>{# fin fila #}
+  {% endfor %}
+</div>
+{% endif %}
+
+{% else %}
+<div class="text-center py-16 text-gray-400">
+  <div class="text-5xl mb-3">📭</div>
+  <p class="text-base font-semibold">No hay items activos</p>
+  {% if current_user.role in ('admin','shopper') %}
+  <p class="text-sm mt-1">Crea uno nuevo con el botón de arriba.</p>
+  {% endif %}
+</div>
+{% endif %}
+
+{# ══ HISTORIAL NO ENCONTRADOS (solo shopper) ══════════════════════════════════ #}
+{% if current_user.role == 'shopper' and nf_history %}
+<div class="mt-6">
+  <h2 class="text-sm font-black text-gray-500 uppercase tracking-wide mb-3">
+    ❌ Historial de No Encontrados
+  </h2>
+  <div class="rounded-xl border border-red-100 bg-white divide-y divide-red-50 overflow-hidden">
+    {% for r in nf_history %}
+    <div class="flex items-center gap-3 px-3 py-2.5">
+      <!-- Qty -->
+      <span class="text-xs font-black bg-red-50 text-red-400 rounded px-1 py-0.5 shrink-0">
+        ×{{ r.quantity }}
+      </span>
+      <!-- Code -->
+      <span class="font-mono font-black text-red-400 text-sm w-20 shrink-0">{{ r.item_code }}</span>
+      <!-- Desc + shopper -->
+      <div class="flex-1 min-w-0">
+        <p class="text-sm text-gray-600 truncate">{{ r.description }}</p>
+        <div class="flex gap-2 text-xs text-gray-400">
+          {% if r.created_by %}
+          <span>🛒 {{ r.created_by }}</span>
+          {% endif %}
+          {% if r.responded_by %}
+          <span>🔍 {{ r.responded_by }}</span>
+          {% endif %}
+        </div>
+      </div>
+      <!-- Hora local (JS la convierte desde UTC) -->
+      <time class="text-xs text-gray-300 shrink-0 whitespace-nowrap local-time"
+            data-utc="{{ r.closed_at.isoformat() if r.closed_at else '' }}">
+        {{ r.closed_at.strftime('%d/%m %H:%M') if r.closed_at else '' }}
+      </time>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<script>
+(function(){
+  // Convierte todos los .local-time con data-utc al timezone del browser
+  document.querySelectorAll('time.local-time[data-utc]').forEach(function(el){
+    var iso = el.dataset.utc;
+    if (!iso) return;
+    // SQLite guarda sin 'Z'; lo agregamos para que Date() lo interprete como UTC
+    if (!iso.endsWith('Z') && !iso.includes('+')) iso += 'Z';
+    var d = new Date(iso);
+    if (isNaN(d)) return;
+    el.textContent = d.toLocaleDateString('es-MX', {day:'2-digit', month:'2-digit'}) +
+                     ' ' +
+                     d.toLocaleTimeString('es-MX', {hour:'2-digit', minute:'2-digit', hour12:false});
+  });
+})();
+</script>

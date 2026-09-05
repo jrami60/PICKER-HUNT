@@ -1,0 +1,590 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Picker Hunt{% endblock %}
+
+{% block content %}
+<div class="flex flex-col gap-5">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-black text-gray-800">
+        {% if current_user.role == 'admin' %}🛠 Panel Administrador
+        {% elif current_user.role == 'buscador' %}🔍 Panel Buscador
+        {% elif current_user.role == 'subgerente' %}📝 Panel Subgerente
+        {% else %}🛒 Panel Shopper{% endif %}
+      </h1>
+      <p class="text-sm text-gray-500 mt-0.5">
+        Hola, <strong>{{ current_user.name }}</strong> ·
+        Items activos: <strong id="item-count">{{ items | length }}</strong>
+      </p>
+    </div>
+    {% if current_user.role in ('admin', 'shopper') %}
+    <button onclick="document.getElementById('modal-create').classList.remove('hidden')"
+      class="bg-walmart-blue text-white px-4 py-2 rounded-lg font-semibold text-sm hover:bg-blue-700 transition flex items-center gap-2">
+      ➕ Nuevo Item
+    </button>
+    {% endif %}
+  </div>
+
+  {# ── Error toast (from form redirects) ────────────────────────────────────── #}
+  {% if error_msg %}
+  <div id="error-toast"
+       role="alert"
+       class="flex items-center justify-between gap-3 bg-red-50 border border-red-300 text-red-800
+              rounded-xl px-4 py-3 text-sm font-semibold shadow-sm animate-pulse">
+    <span>{{ error_msg }}</span>
+    <button onclick="document.getElementById('error-toast').remove()"
+            aria-label="Cerrar"
+            class="text-red-400 hover:text-red-700 text-lg leading-none font-black">&times;</button>
+  </div>
+  {% endif %}
+
+  <!-- Live items container — swapped by HTMX on WS events -->
+  <div id="items-container" class="flex flex-col gap-5">
+    {% include "partials/items_list.html" %}
+  </div>
+
+</div><!-- /page -->
+
+
+{# ── Buscador + Shopper detail modal (bottom sheet) ─────────────────────────── #}
+{% if current_user.role in ('buscador', 'shopper') %}
+<div id="detail-modal"
+     class="hidden fixed inset-0 bg-black/60 z-40 flex items-end justify-center"
+     onclick="closeDetail()">
+  <div id="detail-panel"
+       class="bg-white rounded-t-2xl w-full max-w-lg max-h-[88vh] overflow-y-auto p-5"
+       onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-4">
+      <span class="text-xs text-gray-400 font-semibold">Detalle del item</span>
+      <button onclick="closeDetail()" class="text-gray-400 hover:text-gray-600 text-2xl leading-none"
+              aria-label="Cerrar">&times;</button>
+    </div>
+    <div id="detail-body"></div>
+  </div>
+</div>
+{% endif %}
+
+
+{# ── Create item modal (Admin + Shopper) ────────────────────────────────────── #}
+{% if current_user.role in ('admin', 'shopper') %}
+<div id="modal-create" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+     role="dialog" aria-modal="true" aria-labelledby="modal-title">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
+    <div class="flex items-center justify-between mb-4">
+      <h2 id="modal-title" class="text-lg font-black text-gray-800">➕ Crear nuevo item</h2>
+      <button onclick="closeCreateModal()"
+        class="text-gray-400 hover:text-gray-600 text-2xl leading-none" aria-label="Cerrar">&times;</button>
+    </div>
+    <form id="form-create" method="post" action="/items/create"
+          enctype="multipart/form-data" class="flex flex-col gap-4"
+          onsubmit="handleCreateSubmit(event)">
+      <div>
+        <label for="code" class="block text-sm font-semibold text-gray-700 mb-1">
+          Código <span class="text-red-500">*</span>
+        </label>
+        <input id="code" name="code" type="text" required pattern="\d{1,7}" maxlength="7"
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-walmart-blue"
+          placeholder="ej: 1234567"/>
+        <p class="text-xs text-gray-400 mt-1">1 a 7 dígitos numéricos</p>
+      </div>
+      <div>
+        <label for="description" class="block text-sm font-semibold text-gray-700 mb-1">
+          Descripción <span class="text-red-500">*</span>
+        </label>
+        <textarea id="description" name="description" required rows="2"
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-walmart-blue resize-none"
+          placeholder="Descripción del producto"></textarea>
+      </div>
+      <div>
+        <label for="quantity" class="block text-sm font-semibold text-gray-700 mb-1">
+          Cantidad <span class="text-red-500">*</span>
+        </label>
+        <input id="quantity" name="quantity" type="number" required min="1" value="1"
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-walmart-blue"/>
+      </div>
+
+      <!-- Image upload -->
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-2">Foto del producto</label>
+        <canvas id="compress-canvas" class="hidden"></canvas>
+        <div class="flex gap-2">
+          <button type="button" onclick="document.getElementById('cam-input').click()"
+            class="flex-1 flex flex-col items-center gap-1 border-2 border-dashed border-gray-300 rounded-xl py-3 text-gray-500 hover:border-walmart-blue hover:text-walmart-blue transition text-xs font-semibold">
+            <span class="text-2xl">📷</span>Cámara
+          </button>
+          <input id="cam-input" type="file" accept="image/*" capture="environment" class="hidden"
+                 onchange="handleImageSelect(this)"/>
+          <button type="button" onclick="document.getElementById('gal-input').click()"
+            class="flex-1 flex flex-col items-center gap-1 border-2 border-dashed border-gray-300 rounded-xl py-3 text-gray-500 hover:border-walmart-blue hover:text-walmart-blue transition text-xs font-semibold">
+            <span class="text-2xl">🖼️</span>Galería
+          </button>
+          <input id="gal-input" type="file" accept="image/*" class="hidden"
+                 onchange="handleImageSelect(this)"/>
+        </div>
+        <div id="img-preview-wrap" class="hidden mt-3 relative">
+          <img id="img-preview" src="" alt="Preview"
+               class="w-full rounded-xl object-cover max-h-48 border border-gray-200"/>
+          <button type="button" onclick="clearImage()"
+            class="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 text-xs font-bold flex items-center justify-center hover:bg-red-600"
+            aria-label="Quitar imagen">✕</button>
+          <p id="img-size-label" class="text-xs text-gray-400 mt-1 text-right"></p>
+        </div>
+      </div>
+
+      <div class="bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2 text-xs text-yellow-700 flex gap-2">
+        ⏱ El temporizador de <strong>15 minutos</strong> comenzará automáticamente.
+      </div>
+      <div class="flex gap-3 pt-1">
+        <button type="button" onclick="closeCreateModal()"
+          class="flex-1 border border-gray-300 text-gray-700 py-2 rounded-lg font-semibold text-sm hover:bg-gray-50 transition">
+          Cancelar
+        </button>
+        <button id="btn-create-submit" type="submit"
+          class="flex-1 bg-walmart-blue text-white py-2 rounded-lg font-semibold text-sm hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
+          Crear item
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+
+{# Fullscreen image viewer #}
+<div id="img-viewer" class="hidden fixed inset-0 bg-black/95 z-50 flex items-center justify-center p-4"
+     onclick="this.classList.add('hidden')" role="dialog" aria-label="Foto completa">
+  <img id="img-viewer-src" src="" alt="" class="max-w-full max-h-full rounded-xl object-contain"/>
+  <button onclick="document.getElementById('img-viewer').classList.add('hidden')"
+    class="absolute top-4 right-4 text-white text-3xl leading-none hover:text-gray-300"
+    aria-label="Cerrar">&times;</button>
+</div>
+{% endblock %}
+
+
+{% block extra_scripts %}
+<script>
+// ── Preview de foto en el formulario de respuesta del buscador ──────────────
+// previewRespondImg: muestra una miniatura de la foto seleccionada en el modal
+// sin recargar la página (no usamos capture="environment" por el bug de iOS).
+function previewRespondImg(input) {
+  const file = input.files[0];
+  // La imagen de preview es el hermano <img class="respond-preview"> más cercano
+  const preview = input.closest('div')?.querySelector('img.respond-preview');
+  if (!preview) return;
+  if (!file) {
+    preview.classList.add('hidden');
+    preview.src = '';
+    return;
+  }
+  const url = URL.createObjectURL(file);
+  preview.src = url;
+  preview.classList.remove('hidden');
+  // Liberar objeto URL cuando la imagen ya cargó (evita memory leaks)
+  preview.onload = () => URL.revokeObjectURL(url);
+}
+
+// ── Error toast: auto-dismiss + clean URL ─────────────────────────────────────
+(function () {
+  const toast = document.getElementById('error-toast');
+  if (!toast) return;
+  // Auto-hide after 6 s
+  setTimeout(() => toast.remove(), 6000);
+  // Remove ?error= from address bar so F5 doesn't re-show it
+  if (window.history && window.history.replaceState) {
+    const clean = window.location.pathname;
+    window.history.replaceState(null, '', clean);
+  }
+})();
+
+// ── Buscador detail modal ──────────────────────────────────────────────────────
+function openDetail(itemId) {
+  const tpl = document.getElementById('detail-' + itemId);
+  if (!tpl) return;
+  const body = document.getElementById('detail-body');
+  body.innerHTML = '';
+  body.appendChild(tpl.content.cloneNode(true));
+  document.getElementById('detail-modal').classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeDetail() {
+  document.getElementById('detail-modal').classList.add('hidden');
+  document.body.style.overflow = '';
+}
+
+// ── Fullscreen image viewer ────────────────────────────────────────────────────
+function openImg(src) {
+  document.getElementById('img-viewer-src').src = src;
+  document.getElementById('img-viewer').classList.remove('hidden');
+}
+
+// ── Single-submit guard (reutilizable para cualquier form de acción) ───────────
+function handleSingleSubmit(form) {
+  const btn = form.querySelector('button[type="submit"]');
+  if (!btn || btn.disabled) return;
+  btn.disabled = true;
+  btn.dataset.originalText = btn.textContent;
+  btn.textContent = '⏳ Enviando...';
+}
+
+// ── Create item modal ──────────────────────────────────────────────────────────
+function closeCreateModal() {
+  document.getElementById('modal-create').classList.add('hidden');
+  _resetCreateBtn();
+  clearImage();
+}
+
+function _resetCreateBtn() {
+  const btn = document.getElementById('btn-create-submit');
+  if (!btn) return;
+  btn.disabled = false;
+  btn.textContent = 'Crear item';
+}
+
+async function handleCreateSubmit(e) {
+  e.preventDefault();  // siempre interceptamos — el fetch hace el POST
+
+  const btn = document.getElementById('btn-create-submit');
+  if (btn.disabled) return;
+  btn.disabled = true;
+
+  // Si el shopper tocó "Crear" antes de que terminara la compresión,
+  // esperamos a que el blob esté listo antes de mandar el form.
+  if (_compressPromise) {
+    btn.textContent = '⏳ Comprimiendo foto...';
+    try { await _compressPromise; } catch (_) {}
+  }
+
+  btn.textContent = '⏳ Creando...';
+
+  const form = document.getElementById('form-create');
+  const fd = new FormData(form);
+
+  // Inyectamos el blob directo en el FormData.
+  // Más confiable que DataTransfer en móviles.
+  if (_pendingBlob) {
+    fd.set('image', new File([_pendingBlob], 'photo.jpg', { type: 'image/jpeg' }));
+  } else {
+    fd.delete('image');  // sin foto — el backend lo acepta sin imagen
+  }
+
+  try {
+    const res = await fetch('/items/create', {
+      method: 'POST',
+      body: fd,
+      credentials: 'same-origin',
+      redirect: 'follow',   // sigue el 303 automáticamente
+    });
+    // Si el servidor devuelvió un error (4xx/5xx), mostrar toast en lugar
+    // de navegar al dashboard con un estado roto.
+    if (!res.ok) {
+      let errMsg = '⚠️ Error al crear el item. Intenta de nuevo.';
+      try {
+        const body = await res.json();
+        if (body?.detail) errMsg = '⚠️ ' + body.detail;
+      } catch (_) {}
+      window.showToast(errMsg, '#ea1100');
+      btn.disabled = false;
+      btn.textContent = 'Crear item';
+      return;
+    }
+    // Navegamos directo al dashboard — evitamos depender de res.url
+    // que en algunos browsers móviles devuelve la URL del POST, no la del redirect.
+    window.location.href = '/dashboard';
+  } catch (_) {
+    window.showToast('⚠️ Error de red al crear el item. Intenta de nuevo.', '#ea1100');
+    btn.disabled = false;
+    btn.textContent = 'Crear item';
+  }
+}
+
+// ── Image compression ──────────────────────────────────────────────────────────
+const MAX_W = 1280, QUALITY = 0.82;
+
+let _pendingBlob     = null;  // blob listo para subir
+let _compressPromise = null;  // promesa activa de compresión
+let _compressGen     = 0;     // generación — evita race condition entre selecciones
+
+/** canvas.toBlob como promesa — evita el callback hell y permite await. */
+function _blobFromCanvas(canvas, type, quality) {
+  return new Promise(resolve => canvas.toBlob(resolve, type, quality));
+}
+
+function handleImageSelect(input) {
+  const file = input.files[0];
+  if (!file) return;
+  // Incrementar generación invalida cualquier compresión anterior en vuelo.
+  _pendingBlob     = null;
+  _compressGen++;
+  _compressPromise = compressAndPreview(file, _compressGen);
+}
+
+async function compressAndPreview(file, gen) {
+  // Leer como DataURL
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = e => resolve(e.target.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+  // ¿Ya hay una selección más nueva? Silenciosamente abortamos.
+  if (gen !== _compressGen) return;
+
+  const img = new Image();
+  img.src = dataUrl;
+
+  // img.decode() espera decodificación completa en GPU.
+  // Evita el frame negro en iOS/Android.
+  try { await img.decode(); } catch (_) {}
+  if (gen !== _compressGen) return;  // verificar de nuevo tras await
+
+  const canvas = document.getElementById('compress-canvas');
+  let w = img.naturalWidth  || img.width;
+  let h = img.naturalHeight || img.height;
+  if (w > MAX_W) { h = Math.round(h * MAX_W / w); w = MAX_W; }
+  canvas.width = w;
+  canvas.height = h;
+
+  // Fondo blanco — JPEG no soporta transparencia.
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(img, 0, 0, w, h);
+
+  const blob = await _blobFromCanvas(canvas, 'image/jpeg', QUALITY);
+  // Chequeo final: si el usuario seleccionó OTRA foto mientras comprimíamos,
+  // descartamos este blob obsoleto y NO actualizamos _pendingBlob.
+  if (gen !== _compressGen) return;
+
+  _pendingBlob     = blob;
+  _compressPromise = null;  // compresión terminada
+
+  const url = URL.createObjectURL(blob);
+  document.getElementById('img-preview').src = url;
+  document.getElementById('img-preview-wrap').classList.remove('hidden');
+  document.getElementById('img-size-label').textContent =
+    'Tamaño: ' + (blob.size / 1024).toFixed(0) + ' KB';
+}
+
+function clearImage() {
+  _pendingBlob     = null;
+  _compressPromise = null;
+  _compressGen++;  // invalidar compresión en curso si la hubiera
+  ['cam-input', 'gal-input'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  document.getElementById('img-preview-wrap').classList.add('hidden');
+  document.getElementById('img-preview').src = '';
+}
+
+// ── Timers: init + re-init after HTMX swap ────────────────────────────────────────────
+const TIMER_TOTAL_SECS = 900; // 15 min = 900 s
+
+/** Hex colour for the progress bar based on remaining seconds.
+ *  Verde ≥10 min | Amarillo 5-9:59 | Rojo <5 min */
+function barColour(s) {
+  if (s >= 600) return '#2a8703';  // green.100
+  if (s >= 300) return '#ffc220';  // spark.100 (yellow)
+  return '#ea1100';                 // red.100
+}
+
+/** Inject a "\u00a1Tiempo agotado!" badge next to the timer element (once). */
+function markExpired(timerEl, itemId) {
+  // Avoid duplicating the badge on every tick
+  if (timerEl.dataset.expiredMarked) return;
+  timerEl.dataset.expiredMarked = '1';
+
+  // Style the timer text itself
+  timerEl.style.color = '#ea1100';
+  timerEl.style.fontWeight = '900';
+
+  // --- Badge for BUSCADOR compact row (sibling span) ---
+  const row = timerEl.closest('[role="button"]');
+  if (row) {
+    // Row background → red-50
+    row.classList.add('bg-red-50');
+
+    // Replace any existing urgent badge or add after timer
+    const badge = document.createElement('span');
+    badge.className = 'text-xs text-red-700 font-black shrink-0 whitespace-nowrap';
+    badge.textContent = '\ud83d\udea8 Agotado';
+    timerEl.insertAdjacentElement('afterend', badge);
+    return;
+  }
+
+  // --- Badge for ADMIN/SHOPPER card (sibling next to timer text) ---
+  const urgentSlot = timerEl.nextElementSibling;
+  if (urgentSlot) {
+    urgentSlot.textContent = '\ud83d\udea8 \u00a1Tiempo agotado!';
+    urgentSlot.className = 'text-xs text-red-600 font-black animate-bounce';
+  } else {
+    const badge = document.createElement('span');
+    badge.className = 'text-xs text-red-600 font-black animate-bounce';
+    badge.textContent = '\ud83d\udea8 \u00a1Tiempo agotado!';
+    timerEl.insertAdjacentElement('afterend', badge);
+  }
+
+  // Card ring → red pulse
+  const card = timerEl.closest('.rounded-xl');
+  if (card) {
+    card.classList.remove('ring-red-400');
+    card.classList.add('ring-2', 'ring-red-500', 'animate-pulse');
+  }
+
+  // Also mark modal timer if open
+  const modalTimer = document.getElementById('timer-modal-' + itemId);
+  if (modalTimer && !modalTimer.dataset.expiredMarked) {
+    modalTimer.dataset.expiredMarked = '1';
+    modalTimer.style.color = '#ea1100';
+    modalTimer.style.fontWeight = '900';
+  }
+}
+
+function initTimers() {
+  document.querySelectorAll('[data-timer]').forEach(el => {
+    if (el.dataset.timerRunning) return;       // don't double-register
+    el.dataset.timerRunning = '1';
+    let s = parseInt(el.dataset.timer, 10);
+    const rawId = el.id;  // e.g. "timer-42" or "timer-modal-42"
+    const itemId = rawId.replace('timer-modal-', '').replace('timer-', '');
+
+    // Already expired at page load — mark immediately
+    if (s === 0) markExpired(el, itemId);
+
+    setInterval(() => {
+      if (s <= 0) return;
+      s--;
+      el.textContent = String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+
+      // Update text colour
+      if (s < 300) {
+        el.style.color = '#ea1100';
+        el.style.fontWeight = '900';
+      } else if (s < 600) {
+        el.style.color = '#995213';  // spark.140 warning
+      } else {
+        el.style.color = '';
+      }
+
+      // Update progress bar colour + width
+      const bar = document.getElementById('bar-' + itemId) ||
+                  document.getElementById('bar-modal-' + itemId);
+      if (bar) {
+        bar.style.width = Math.max(0, Math.round(s / TIMER_TOTAL_SECS * 100)) + '%';
+        bar.style.background = barColour(s);
+      }
+
+      // When the clock just hit zero, show the expired state in-place
+      if (s === 0) markExpired(el, itemId);
+    }, 1000);
+  });
+}
+initTimers();
+
+// Re-run after HTMX swaps in fresh content
+document.addEventListener('htmx:afterSettle', initTimers);
+
+// ── Admin: toggle acciones por fila ─────────────────────────────────────────────
+function toggleAdminActions(itemId) {
+  const panel = document.getElementById('admin-actions-' + itemId);
+  if (!panel) return;
+  const isHidden = panel.classList.contains('hidden');
+  panel.classList.toggle('hidden', !isHidden);
+  panel.classList.toggle('flex', isHidden);
+}
+
+// ── Admin: multi-select + bulk delete ───────────────────────────────────
+function _getChecked() {
+  return [...document.querySelectorAll('.admin-item-chk:checked')];
+}
+
+function adminCheckChanged() {
+  const checked = _getChecked();
+  const total   = document.querySelectorAll('.admin-item-chk').length;
+  const bar     = document.getElementById('bulk-bar');
+  const countEl = document.getElementById('bulk-count');
+  const selectAll = document.getElementById('chk-select-all');
+
+  if (!bar) return;
+  if (checked.length > 0) {
+    bar.classList.remove('hidden');
+    bar.classList.add('flex');
+  } else {
+    bar.classList.add('hidden');
+    bar.classList.remove('flex');
+  }
+  if (countEl) countEl.textContent = checked.length + ' seleccionado' + (checked.length !== 1 ? 's' : '');
+  if (selectAll) selectAll.indeterminate = checked.length > 0 && checked.length < total;
+  if (selectAll) selectAll.checked = checked.length === total && total > 0;
+}
+
+function adminSelectAll(checked) {
+  document.querySelectorAll('.admin-item-chk').forEach(chk => { chk.checked = checked; });
+  adminCheckChanged();
+}
+
+function adminDeleteSelected() {
+  const checked = _getChecked();
+  if (checked.length === 0) return;
+  const n = checked.length;
+  if (!confirm('¿Eliminar ' + n + ' item' + (n !== 1 ? 's' : '') + ' permanentemente? Esta acción no se puede deshacer.')) return;
+
+  const form = document.getElementById('form-bulk-delete');
+  if (!form) return;
+  // Limpiar inputs viejos y agregar los IDs seleccionados
+  form.querySelectorAll('input[name="item_ids"]').forEach(el => el.remove());
+  checked.forEach(chk => {
+    const input = document.createElement('input');
+    input.type  = 'hidden';
+    input.name  = 'item_ids';
+    input.value = chk.dataset.id;
+    form.appendChild(input);
+  });
+  form.submit();
+}
+
+// Resetear selección tras HTMX swap
+document.addEventListener('htmx:afterSettle', () => {
+  const bar = document.getElementById('bulk-bar');
+  if (bar) { bar.classList.add('hidden'); bar.classList.remove('flex'); }
+});
+
+// ── Shopper: filtro por estado ─────────────────────────────────────────────────
+let _activeFilter = 'all';
+
+function setFilter(val) {
+  _activeFilter = val;
+
+  // Estilos de los tabs
+  document.querySelectorAll('.filter-tab').forEach(btn => {
+    const isActive = btn.dataset.filter === val;
+    btn.classList.toggle('ring-2', isActive);
+    btn.classList.toggle('bg-gray-100', isActive);
+    btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+  });
+
+  // Mostrar / ocultar filas
+  document.querySelectorAll('[data-status]').forEach(row => {
+    const show = val === 'all' || row.dataset.status === val;
+    row.style.display = show ? '' : 'none';
+  });
+}
+
+// Reaplicar el filtro activo tras HTMX swap
+document.addEventListener('htmx:afterSettle', () => setFilter(_activeFilter));
+
+// Animate new items (CSS keyframe injected once)
+(function () {
+  const style = document.createElement('style');
+  style.textContent = `
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(-8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .item-new { animation: slideIn 0.4s ease-out; }
+  `;
+  document.head.appendChild(style);
+})();
+</script>
+{% endblock %}

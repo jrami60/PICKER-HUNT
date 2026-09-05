@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}Planificación de Tareas — Picker Hunt{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto px-4 py-6 flex flex-col gap-6">
+
+  <!-- Header -->
+  <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-200 pb-4">
+    <div>
+      <h1 class="text-2xl font-black text-gray-800 flex items-center gap-2">
+        📝 Planificación de Tareas
+      </h1>
+      <p class="text-sm text-gray-500">
+        Panel de control para <strong>Subgerente</strong>. Registra rutinas, anota tareas diarias y adjunta evidencia fotográfica.
+      </p>
+    </div>
+    <button onclick="document.getElementById('modal-create-task').classList.remove('hidden')"
+      class="bg-walmart-blue text-white px-4 py-2.5 rounded-lg font-bold text-sm hover:bg-blue-700 transition flex items-center justify-center gap-2 shadow-sm">
+      ➕ Nueva Tarea
+    </button>
+  </div>
+
+  <!-- Tareas List -->
+  <div class="flex flex-col gap-4">
+    <h2 class="text-lg font-bold text-gray-700">📋 Tareas Planificadas</h2>
+
+    {% if not tareas %}
+    <div class="bg-white rounded-xl p-8 text-center border border-gray-200 shadow-sm">
+      <span class="text-4xl">📝</span>
+      <p class="text-gray-500 font-semibold mt-2">No hay tareas registradas para planificación.</p>
+      <p class="text-gray-400 text-xs mt-1">¡Crea tu primera tarea usando el botón de arriba!</p>
+    </div>
+    {% else %}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {% for tarea in tareas %}
+      <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden flex flex-col justify-between">
+        
+        <!-- Task Header & Image -->
+        <div>
+          {% if tarea.image_data %}
+          <div class="w-full h-48 bg-gray-100 relative overflow-hidden">
+            <img src="/subgerente/tareas/{{ tarea.id }}/image" alt="Evidencia de tarea" class="w-full h-full object-cover">
+            <span class="absolute top-2 right-2 bg-black/60 text-white text-[10px] font-bold px-2 py-1 rounded-full backdrop-blur-sm">
+              📸 Con Evidencia
+            </span>
+          </div>
+          {% else %}
+          <div class="w-full h-24 bg-gray-50 flex items-center justify-center border-b border-gray-100 text-gray-400">
+            <span class="text-2xl">📷</span>
+            <span class="text-xs ml-1 font-medium">Sin evidencia fotográfica</span>
+          </div>
+          {% endif %}
+
+          <div class="p-4 flex flex-col gap-2">
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-xs font-mono bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-bold">
+                📅 {{ tarea.fecha_planificacion }}
+              </span>
+              
+              <!-- Status Badge -->
+              {% if tarea.estado == 'pendiente' %}
+              <span class="px-2 py-0.5 rounded-full text-xs font-bold bg-yellow-100 text-yellow-800 border border-yellow-300">PENDIENTE</span>
+              {% elif tarea.estado == 'en_progreso' %}
+              <span class="px-2 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800 border border-blue-300">EN PROGRESO</span>
+              {% else %}
+              <span class="px-2 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-800 border border-green-300">COMPLETADA</span>
+              {% endif %}
+            </div>
+
+            <p class="text-gray-800 text-sm font-semibold whitespace-pre-line mt-1">
+              {{ tarea.descripcion }}
+            </p>
+          </div>
+        </div>
+
+        <!-- Actions Footer -->
+        <div class="p-4 bg-gray-50 border-t border-gray-100 flex items-center justify-between gap-2">
+          <!-- Update Status Form -->
+          <form method="post" action="/subgerente/tareas/{{ tarea.id }}/status" class="flex items-center gap-1.5 flex-1">
+            <select name="estado" onchange="this.form.submit()" 
+                    class="text-xs bg-white border border-gray-300 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-walmart-blue font-semibold text-gray-700 w-full">
+              <option value="pendiente" {% if tarea.estado == 'pendiente' %}selected{% endif %}>Marcar Pendiente</option>
+              <option value="en_progreso" {% if tarea.estado == 'en_progreso' %}selected{% endif %}>En Progreso</option>
+              <option value="completada" {% if tarea.estado == 'completada' %}selected{% endif %}>Completada ✓</option>
+            </select>
+          </form>
+
+          <!-- Delete Form -->
+          <form method="post" action="/subgerente/tareas/{{ tarea.id }}/delete" onsubmit="return confirm('¿Seguro que deseas eliminar esta tarea planificada?')" class="shrink-0">
+            <button type="submit" class="text-red-500 hover:text-red-700 font-bold text-xs p-1.5 hover:bg-red-50 rounded transition" title="Eliminar tarea">
+              🗑️ Borrar
+            </button>
+          </form>
+        </div>
+
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<!-- Modal: Create Task -->
+<div id="modal-create-task" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+     role="dialog" aria-modal="true" aria-labelledby="modal-task-title">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
+    <div class="flex items-center justify-between mb-4">
+      <h2 id="modal-task-title" class="text-lg font-black text-gray-800">📝 Anotar Nueva Tarea</h2>
+      <button onclick="document.getElementById('modal-create-task').classList.add('hidden')"
+        class="text-gray-400 hover:text-gray-600 text-2xl leading-none" aria-label="Cerrar">&times;</button>
+    </div>
+    <form method="post" action="/subgerente/tareas/create" enctype="multipart/form-data" class="flex flex-col gap-4">
+      <div>
+        <label for="fecha_planificacion" class="block text-sm font-semibold text-gray-700 mb-1">
+          Fecha de Planificación <span class="text-red-500">*</span>
+        </label>
+        <input id="fecha_planificacion" name="fecha_planificacion" type="date" required value="{{ today }}"
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-walmart-blue"/>
+      </div>
+      <div>
+        <label for="descripcion" class="block text-sm font-semibold text-gray-700 mb-1">
+          Descripción de la Tarea <span class="text-red-500">*</span>
+        </label>
+        <textarea id="descripcion" name="descripcion" required rows="3"
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-walmart-blue resize-none"
+          placeholder="Escribe la tarea planificada..."></textarea>
+      </div>
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 mb-1">
+          Evidencia Fotográfica (Foto)
+        </label>
+        <!-- The capture="environment" instructs mobile phones to launch the rear camera immediately! -->
+        <input name="image" type="file" accept="image/*" capture="environment"
+          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-walmart-blue bg-white file:mr-4 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200 cursor-pointer"/>
+        <p class="text-xs text-gray-400 mt-1">Saca una foto desde tu celular o sube una imagen.</p>
+      </div>
+      <div class="flex gap-3 pt-2">
+        <button type="button" onclick="document.getElementById('modal-create-task').classList.add('hidden')"
+          class="flex-1 border border-gray-300 text-gray-700 py-2 rounded-lg font-semibold text-sm hover:bg-gray-50 transition">Cancelar</button>
+        <button type="submit"
+          class="flex-1 bg-walmart-blue text-white py-2 rounded-lg font-semibold text-sm hover:bg-blue-700 transition">Anotar Tarea</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

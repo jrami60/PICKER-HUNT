@@ -1,0 +1,124 @@
+{% extends "checklist/base_checklist.html" %}
+{% block title %}Resumen Global — Check Rutinas{% endblock %}
+
+{% block content %}
+<div class="text-sm text-gray-500 mb-4">
+  <a href="/checklist" class="text-walmart-blue hover:underline">← Inicio</a>
+  <span class="mx-2 text-gray-300">/</span>
+  <span class="font-bold text-gray-700">Resumen Global</span>
+</div>
+
+<h1 class="text-2xl font-black text-gray-800 mb-5">📊 Resumen Global</h1>
+
+<!-- Filters -->
+<form method="get" action="/checklist/admin/resumen"
+      class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-5 flex flex-wrap gap-3 items-end">
+  <div>
+    <label class="block text-xs font-semibold text-gray-600 mb-1">Desde</label>
+    <input name="fecha_desde" type="date" value="{{ fecha_desde }}"
+      class="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-walmart-blue"/>
+  </div>
+  <div>
+    <label class="block text-xs font-semibold text-gray-600 mb-1">Hasta</label>
+    <input name="fecha_hasta" type="date" value="{{ fecha_hasta }}"
+      class="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-walmart-blue"/>
+  </div>
+  <button type="submit"
+    class="bg-walmart-blue text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-blue-700 transition">
+    🔍 Filtrar
+  </button>
+  <a href="/checklist/admin/resumen"
+    class="border border-gray-300 text-gray-600 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-gray-50 transition">
+    Limpiar
+  </a>
+</form>
+
+{% if sesiones %}
+<!-- Summary stats -->
+{% set total_s = sesiones | length %}
+{% set cerradas = sesiones | selectattr('cerrado','eq','si') | list | length %}
+<div class="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-5">
+  <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 text-center">
+    <div class="text-3xl font-black text-walmart-blue">{{ total_s }}</div>
+    <div class="text-xs text-gray-400 font-semibold mt-1">Total checklists</div>
+  </div>
+  <div class="bg-green-50 rounded-xl border border-green-100 p-4 text-center">
+    <div class="text-3xl font-black text-green-700">{{ cerradas }}</div>
+    <div class="text-xs text-green-500 font-semibold mt-1">✅ Cerrados</div>
+  </div>
+  <div class="bg-orange-50 rounded-xl border border-orange-100 p-4 text-center">
+    <div class="text-3xl font-black text-orange-700">{{ total_s - cerradas }}</div>
+    <div class="text-xs text-orange-500 font-semibold mt-1">⏳ En curso</div>
+  </div>
+</div>
+
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm" role="table">
+      <thead class="bg-walmart-blue text-white">
+        <tr>
+          <th class="px-4 py-3 text-left font-semibold">#</th>
+          <th class="px-4 py-3 text-left font-semibold">Local</th>
+          <th class="px-4 py-3 text-left font-semibold">Fecha</th>
+          <th class="px-4 py-3 text-left font-semibold">Sección</th>
+          <th class="px-4 py-3 text-left font-semibold">Turno</th>
+          <th class="px-4 py-3 text-left font-semibold">Estado</th>
+          <th class="px-4 py-3 text-left font-semibold">Completitud</th>
+          <th class="px-4 py-3 text-left font-semibold">Ver</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-50">
+        {% for s in sesiones %}
+        {% set total_r = s.respuestas | length %}
+        {% set cumple_r = s.respuestas | selectattr('resultado','eq','cumple') | list | length %}
+        {% set pct_r = (cumple_r / total_r * 100) | round | int if total_r else 0 %}
+        <tr class="hover:bg-gray-50 transition">
+          <td class="px-4 py-3 font-mono text-gray-400 text-xs">{{ s.id }}</td>
+          <td class="px-4 py-3 font-semibold text-gray-800">{{ s.local.nombre if s.local else '—' }}</td>
+          <td class="px-4 py-3 text-gray-600">{{ s.fecha }}</td>
+          <td class="px-4 py-3 text-gray-600">{{ s.seccion.nombre if s.seccion else '—' }}</td>
+          <td class="px-4 py-3">
+            <span class="px-2 py-0.5 rounded-full text-xs font-bold
+              {% if s.turno == 'AM' %}bg-yellow-100 text-yellow-700
+              {% elif s.turno == 'PM' %}bg-blue-100 text-blue-700
+              {% else %}bg-gray-100 text-gray-600{% endif %}">
+              {{ s.turno }}
+            </span>
+          </td>
+          <td class="px-4 py-3">
+            {% if s.cerrado == 'si' %}
+            <span class="text-xs font-bold text-green-600">✅ Cerrado</span>
+            {% else %}
+            <span class="text-xs font-bold text-orange-500">⏳ En curso</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-3">
+            <div class="flex items-center gap-2">
+              <div class="w-20 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                <div class="h-full rounded-full
+                  {% if pct_r >= 80 %}bg-green-500{% elif pct_r >= 50 %}bg-yellow-400{% else %}bg-red-400{% endif %}"
+                  style="width: {{ pct_r }}%"></div>
+              </div>
+              <span class="text-xs font-bold text-gray-600">{{ pct_r }}%</span>
+            </div>
+          </td>
+          <td class="px-4 py-3">
+            {% if s.cerrado == 'si' %}
+            <a href="/checklist/{{ s.id }}/resumen" class="text-xs text-walmart-blue hover:underline font-semibold">Resumen →</a>
+            {% else %}
+            <a href="/checklist/{{ s.id }}" class="text-xs text-walmart-blue hover:underline font-semibold">Continuar →</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="text-center py-16 text-gray-400">
+  <div class="text-5xl mb-3">📭</div>
+  <p class="font-semibold">No hay checklists en este período</p>
+</div>
+{% endif %}
+{% endblock %}

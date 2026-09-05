@@ -1,0 +1,120 @@
+{% extends "checklist/base_checklist.html" %}
+{% block title %}Nuevo Checklist — Check Rutinas{% endblock %}
+
+{% block content %}
+<!-- Breadcrumb -->
+<div class="text-sm text-gray-500 mb-5">
+  <a href="/checklist" class="text-walmart-blue hover:underline">← Inicio</a>
+  <span class="mx-2 text-gray-300">/</span>
+  <span class="font-bold text-gray-700">Nuevo Checklist</span>
+</div>
+
+<!-- Hero card (matches screenshot) -->
+<div class="rounded-2xl overflow-hidden mb-6"
+     style="background: linear-gradient(135deg, #1a4cc8 0%, #0053e2 65%, #2a5de8 100%);">
+  <div class="px-8 py-7 flex items-center gap-6 relative">
+    <div class="bg-white/15 rounded-xl p-4 flex-shrink-0">
+      <div class="text-5xl">📋</div>
+    </div>
+    <div>
+      <div class="text-walmart-spark text-xs font-black tracking-widest uppercase mb-1">Walmart Chile</div>
+      <h1 class="text-white font-black text-3xl leading-tight">Check Rutinas<br>Completitud</h1>
+      <p class="text-blue-200 text-sm mt-2">Completa los datos del local y turno<br>para iniciar el registro de rutinas.</p>
+    </div>
+    <div class="absolute right-8 top-3 w-28 h-28 rounded-full bg-white/5"></div>
+    <div class="absolute right-24 bottom-1 w-16 h-16 rounded-full bg-white/5"></div>
+  </div>
+</div>
+
+<!-- Form card (matches screenshot) -->
+<div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 max-w-2xl">
+
+  {% if error %}
+  <div class="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+    ⚠️ {{ error }}
+  </div>
+  {% endif %}
+
+  <form method="post" action="/checklist/nuevo" class="flex flex-col gap-6">
+
+    <!-- Local -->
+    <div>
+      <label for="local_id" class="block text-sm font-semibold text-gray-700 mb-2">Local</label>
+      <select id="local_id" name="local_id" required
+        onchange="loadSecciones(this.value)"
+        class="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-walmart-blue appearance-none shadow-sm">
+        <option value="">-- Seleccionar --</option>
+        {% for local in locales %}
+        <option value="{{ local.id }}">{{ local.nombre }}</option>
+        {% endfor %}
+      </select>
+      {% if not locales %}
+      <p class="text-xs text-orange-600 mt-1">
+        ⚠️ No hay locales configurados.
+        {% if current_user.role == 'admin' %}
+        <a href="/checklist/config" class="underline">Configúralos aquí →</a>
+        {% endif %}
+      </p>
+      {% endif %}
+    </div>
+
+    <!-- Fecha -->
+    <div>
+      <label for="fecha" class="block text-sm font-semibold text-gray-700 mb-2">Fecha</label>
+      <input id="fecha" name="fecha" type="date" required value="{{ today }}"
+        class="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-walmart-blue shadow-sm"/>
+    </div>
+
+    <!-- Sección -->
+    <div>
+      <label for="seccion_id" class="block text-sm font-semibold text-gray-700 mb-2">Sección</label>
+      <select id="seccion_id" name="seccion_id"
+        class="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-walmart-blue appearance-none shadow-sm">
+        <option value="">-- Seleccionar --</option>
+      </select>
+    </div>
+
+    <!-- Turno -->
+    <div>
+      <label for="turno" class="block text-sm font-semibold text-gray-700 mb-2">Turno</label>
+      <select id="turno" name="turno" required
+        class="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-walmart-blue appearance-none shadow-sm">
+        <option value="AM">AM</option>
+        <option value="PM">PM</option>
+        <option value="Noche">Noche</option>
+      </select>
+    </div>
+
+    <!-- Submit -->
+    <div class="pt-2">
+      <button type="submit"
+        class="w-full bg-walmart-blue text-white py-3.5 rounded-xl font-bold text-base hover:bg-blue-700 transition focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-walmart-blue">
+        🚀 Iniciar Checklist
+      </button>
+    </div>
+
+  </form>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+async function loadSecciones(localId) {
+  const sel = document.getElementById('seccion_id');
+  sel.innerHTML = '<option value="">-- Seleccionar --</option>';
+  if (!localId) return;
+  try {
+    const res = await fetch('/checklist/api/secciones/' + localId);
+    const data = await res.json();
+    data.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = s.nombre;
+      sel.appendChild(opt);
+    });
+  } catch(e) {
+    console.error('Error cargando secciones', e);
+  }
+}
+</script>
+{% endblock %}

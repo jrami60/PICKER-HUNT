@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>{% block title %}Picker Hunt{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            walmart: { blue: '#0053e2', spark: '#ffc220', red: '#ea1100', green: '#2a8703' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    .timer-urgent { animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+    .role-badge-admin    { background:#0053e2; color:#fff; }
+    .role-badge-buscador { background:#2a8703; color:#fff; }
+    .role-badge-shopper  { background:#ffc220; color:#1a1a1a; }
+    .role-badge-subgerente { background:#995213; color:#fff; }
+    .status-pendiente    { background:#fef9c3; color:#854d0e; border:1px solid #fcd34d; }
+    .status-encontrado   { background:#dcfce7; color:#166534; border:1px solid #86efac; }
+    .status-no_encontrado{ background:#fee2e2; color:#991b1b; border:1px solid #fca5a5; }
+    .status-en_sala      { background:#ccfbf1; color:#0f766e; border:1px solid #5eead4; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen font-sans">
+
+  <!-- Navbar -->
+  <nav class="bg-walmart-blue shadow-md">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+      <a href="/dashboard" class="flex items-center gap-2">
+        <span class="text-walmart-spark font-black text-2xl">&#9889;</span>
+        <span class="text-white font-bold text-xl tracking-tight">Picker Hunt</span>
+        {% if current_user is defined and current_user %}
+        <span class="ml-1 px-2 py-0.5 rounded-full text-xs font-black
+          {% if current_user.store == '96' %}bg-walmart-spark text-gray-900{% else %}bg-white/20 text-white{% endif %}">
+          L{{ current_user.store or '929' }}
+        </span>
+        {% endif %}
+      </a>
+      {% if current_user is defined and current_user %}
+      <div class="flex items-center gap-4">
+        {% if current_user.role == 'admin' %}
+        <a href="/admin/users"          class="text-white hover:text-walmart-spark text-sm font-medium transition">👥 Usuarios</a>
+        <a href="/admin/history"        class="text-white hover:text-walmart-spark text-sm font-medium transition">📋 Historial</a>
+        <a href="/admin/productividad"  class="text-white hover:text-walmart-spark text-sm font-medium transition">🏆 Productividad</a>
+        {% endif %}
+        {% if current_user.role in ('subgerente', 'admin') %}
+        <a href="/subgerente/tareas" class="text-white hover:text-walmart-spark text-sm font-medium transition">📝 Planificación</a>
+        {% endif %}
+        {% if current_user.role == 'buscador' %}
+        <a href="/buscador/resumen" class="text-white hover:text-walmart-spark text-sm font-medium transition">📊 Mi Día</a>
+        {% endif %}
+        {% if current_user.role == 'buscador' %}
+        <button onclick="testSound()"
+                title="Probar sonido de alerta"
+                class="text-walmart-spark hover:text-white text-lg transition"
+                aria-label="Probar sonido">
+          🔔
+        </button>
+        {% endif %}
+        <span class="px-2 py-1 rounded text-xs font-bold role-badge-{{ current_user.role }}">
+          {{ current_user.role | upper }}
+        </span>
+        <span class="text-white text-sm">{{ current_user.name }}</span>
+        <a href="/logout" class="bg-white text-walmart-blue px-3 py-1 rounded text-sm font-semibold hover:bg-gray-100 transition">Salir</a>
+      </div>
+      {% endif %}
+    </div>
+  </nav>
+
+  <!-- NOTIFICACION NUEVA (solo buscador) — aparece encima de todo -->
+  {% if current_user is defined and current_user and current_user.role == 'buscador' %}
+  <div id="item-alert"
+       class="hidden fixed inset-x-0 top-0 z-50 p-3 flex justify-center"
+       style="pointer-events:none">
+    <div class="bg-green-600 text-white rounded-2xl shadow-2xl px-5 py-4
+                flex items-center gap-4 max-w-sm w-full"
+         style="pointer-events:auto; animation: slideDown .35s ease">
+      <span class="text-4xl shrink-0">📦</span>
+      <div class="flex-1 min-w-0">
+        <p class="font-black text-base leading-tight">¡Nuevo item!</p>
+        <p id="item-alert-code"  class="text-sm font-mono font-bold truncate"></p>
+        <p id="item-alert-desc"  class="text-xs text-green-100 truncate"></p>
+        <p id="item-alert-qty"   class="text-xs font-bold"></p>
+      </div>
+      <button onclick="document.getElementById('item-alert').classList.add('hidden')"
+              class="shrink-0 bg-white text-green-700 font-black text-xs
+                     px-3 py-2 rounded-lg hover:bg-green-50 transition">
+        Ver ✓
+      </button>
+    </div>
+  </div>
+  <style>
+    @keyframes slideDown {
+      from { transform: translateY(-110%); opacity: 0; }
+      to   { transform: translateY(0);    opacity: 1; }
+    }
+  </style>
+  {% endif %}
+
+  <!-- Flash messages area -->
+  <div id="flash" class="max-w-7xl mx-auto px-4 pt-2"></div>
+
+
+
+  <!-- Main content -->
+  <main class="max-w-7xl mx-auto px-4 py-6">
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- Actualizaciones en vivo via polling (sin WebSocket, sin full reload) -->
+  <script>
+  (function () {
+    const BEEP_SRC    = 'data:audio/wav;base64,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';
+    const USER_ROLE    = "{{ current_user.role if current_user is defined and current_user else '' }}";
+    const IS_BUSCADOR  = USER_ROLE === 'buscador';
+    const SOUND_KEY    = 'ph_alerts_active';   // localStorage key
+
+    // Sin WebSocket (no aplica en hosting serverless) — puro polling.
+    // Bajo a 8s para que se sienta casi en vivo sin necesitar conexiones persistentes.
+    const POLL_MS = 8000;
+
+    let refreshQueued = false;
+    let _alertsActive = localStorage.getItem(SOUND_KEY) === '1';
+    // IDs de items 'pendiente' vistos en el último poll (null = aún no hay baseline,
+    // evita disparar alertas de 'nuevo item' con lo que ya estaba en pantalla al cargar).
+    let _knownPendienteIds = null;
+
+
+
+    // ── Audio ──────────────────────────────────────────────────────────────
+    // BEEP_SRC es una constante JS con el WAV en base64 (inyectada arriba).
+    // Creamos UN objeto Audio y lo reutilizamos. El unlock ocurre en onclick.
+
+    let _audio        = new Audio(BEEP_SRC);
+    let _audioUnlocked = false;
+    _audio.volume = 1.0;
+
+    /** Solo llamar desde onclick. Hace play real y marca audio como desbloqueado. */
+    async function _unlockAndPlay() {
+      try {
+        _audio.currentTime = 0;
+        await _audio.play();
+        _audioUnlocked = true;
+      } catch (err) {
+        // En algunos browsers el play() falla la primera vez — segundo intento
+        try {
+          _audio = new Audio(BEEP_SRC);
+          _audio.volume = 1.0;
+          await _audio.play();
+          _audioUnlocked = true;
+        } catch (_) {}
+      }
+    }
+
+    /** Reproduce el beep desde cualquier contexto (WS, timer). */
+    function playNewItemSound() {
+      if (!_alertsActive || !_audioUnlocked) return;
+      try {
+        _audio.currentTime = 0;
+        _audio.play().catch(() => {});
+      } catch (_) {}
+      // Vibración como refuerzo en móvil
+      try { navigator.vibrate && navigator.vibrate([150, 80, 150]); } catch (_) {}
+    }
+
+    /** Botón 🔔 en navbar: activa + prueba sonido desde onclick (gesto real). */
+    window.testSound = async function () {
+      _alertsActive = true;
+      localStorage.setItem(SOUND_KEY, '1');
+      await _unlockAndPlay();
+      showToast(
+        _audioUnlocked ? '🔔 Sonido activado — ¡listo!' : '🔔 Alertas activadas (sin sonido)',
+        _audioUnlocked ? '#2a8703' : '#854d0e'
+      );
+    };
+
+    // ── Notification API (browser/sistema) ────────────────────────────
+    function showSystemNotification(title, body) {
+      if (!('Notification' in window)) return;
+      if (Notification.permission !== 'granted') return;
+      try {
+        const n = new Notification(title, {
+          body,
+          icon: '/favicon.ico',
+          tag: 'picker-hunt-new-item',
+          renotify: true,
+          vibrate: [200, 100, 200],
+        });
+        n.onclick = () => { window.focus(); n.close(); };
+      } catch (_) {}
+    }
+
+    // ── Card de alerta in-app (solo buscador) ─────────────────────────
+    let _alertDismissTimer = null;
+    function showItemAlert(code, desc, qty) {
+      const el = document.getElementById('item-alert');
+      if (!el) return;
+      document.getElementById('item-alert-code').textContent = code  ? '№ ' + code : '';
+      document.getElementById('item-alert-desc').textContent = desc  || '';
+      document.getElementById('item-alert-qty').textContent  = qty   ? 'Cantidad: ' + qty : '';
+      el.classList.remove('hidden');
+      clearTimeout(_alertDismissTimer);
+      _alertDismissTimer = setTimeout(() => el.classList.add('hidden'), 8000);
+    }
+
+
+
+    // ── Toast ──────────────────────────────────────────────────────
+    // Expuesto globalmente para que otros scripts (dashboard.html) puedan
+    // mostrar toasts de error sin duplicar la función.
+    window.showToast = function showToast(msg, color) {
+      const t = document.createElement('div');
+      t.textContent = msg;
+      t.style.cssText = [
+        'position:fixed', 'top:72px', 'left:50%', 'transform:translateX(-50%)',
+        'padding:10px 20px', 'border-radius:999px', 'font-weight:700',
+        'font-size:14px', 'z-index:9999', 'transition:opacity .4s',
+        `background:${color}`, 'color:#fff', 'box-shadow:0 4px 12px rgba(0,0,0,.25)'
+      ].join(';');
+      document.body.appendChild(t);
+      setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 500); }, 2800);
+    }
+
+    // ── Indicador de conexión (punto en navbar) ─────────────────────────────
+    // Ahora refleja la salud del polling, no de un WebSocket.
+    const dot = document.createElement('span');
+    dot.id = 'poll-dot';
+    dot.title = 'Actualizaciones en vivo (polling)';
+    dot.style.cssText = [
+      'display:inline-block', 'width:8px', 'height:8px', 'border-radius:50%',
+      'background:#ffc220', 'margin-left:8px', 'vertical-align:middle',
+      'transition:background .4s'
+    ].join(';');
+    document.querySelector('nav')?.appendChild(dot);
+
+    function setDot(state) {
+      const colors = { ok: '#2a8703', error: '#ea1100' };
+      if (dot) dot.style.background = colors[state] ?? '#ffc220';
+    }
+
+    // ── Detectar items 'pendiente' nuevos comparando contra el poll anterior ──
+    // Reemplaza lo que antes hacía el WebSocket con el evento 'item_created':
+    // dispara sonido + vibración + notificación del sistema solo para buscador.
+    function _checkNewItems(container) {
+      const rows = container.querySelectorAll('[data-item-id][data-status="pendiente"]');
+      const currentIds = new Set();
+      const newRows = [];
+      rows.forEach((row) => {
+        const id = row.getAttribute('data-item-id');
+        currentIds.add(id);
+        if (_knownPendienteIds && !_knownPendienteIds.has(id)) newRows.push(row);
+      });
+
+      if (IS_BUSCADOR && newRows.length) {
+        const row = newRows[0];
+        const code = row.querySelector('.font-mono.font-black')?.textContent?.trim() || '';
+        const desc = row.querySelector('.text-gray-700.truncate')?.textContent?.trim() || '';
+        showItemAlert(code, desc, '');
+        playNewItemSound();
+        showSystemNotification(
+          'Picker Hunt - Nuevo item',
+          (code ? code + ' - ' : '') + (desc || 'Hay un nuevo item para buscar!')
+        );
+        showToast('Nuevo item ingresado', '#0053e2');
+      }
+
+      _knownPendienteIds = currentIds;
+    }
+
+    // ── Refresh via fetch nativo (no depende de HTMX ni de CDNs externos) ──
+    async function refreshItems() {
+      if (refreshQueued) return;
+      refreshQueued = true;
+      setTimeout(async () => {
+        refreshQueued = false;
+        const container = document.getElementById('items-container');
+        if (!container) return;
+        try {
+          const res = await fetch('/dashboard/items', { credentials: 'same-origin' });
+          if (!res.ok) { setDot('error'); return; }
+          container.innerHTML = await res.text();
+          _checkNewItems(container);
+          setDot('ok');
+          // Re-inicializar timers si estamos en el dashboard
+          if (typeof initTimers === 'function') initTimers();
+        } catch (_) {
+          setDot('error');  // red caída — el próximo poll lo reintentará
+        }
+      }, 300);
+    }
+
+    // ── Arranque: primer fetch inmediato (fija el baseline) + polling cada 8s ──
+    refreshItems();
+    setInterval(refreshItems, POLL_MS);
+  })();
+  </script>
+
+  {% block extra_scripts %}{% endblock %}
+</body>
+</html>

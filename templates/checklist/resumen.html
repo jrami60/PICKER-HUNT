@@ -1,0 +1,101 @@
+{% extends "checklist/base_checklist.html" %}
+{% block title %}Resumen #{{ sesion.id }} — Check Rutinas{% endblock %}
+
+{% block content %}
+<div class="text-sm text-gray-500 mb-4">
+  <a href="/checklist" class="text-walmart-blue hover:underline">← Inicio</a>
+  <span class="mx-2 text-gray-300">/</span>
+  <span class="font-bold text-gray-700">Resumen #{{ sesion.id }}</span>
+</div>
+
+<!-- Score card -->
+<div class="rounded-2xl mb-6 overflow-hidden"
+     style="background: linear-gradient(135deg, #1a4cc8 0%, #0053e2 65%, #2a5de8 100%);">
+  <div class="px-8 py-7 text-white">
+    <div class="flex items-center justify-between flex-wrap gap-4">
+      <div>
+        <div class="text-blue-200 text-xs font-black uppercase tracking-widest mb-1">Resultado final</div>
+        <h1 class="font-black text-2xl">{{ sesion.local.nombre if sesion.local else '—' }}</h1>
+        <p class="text-blue-200 text-sm mt-1">
+          {{ sesion.fecha }} · {{ sesion.seccion.nombre if sesion.seccion else 'Sin sección' }} · Turno {{ sesion.turno }}
+        </p>
+      </div>
+      <div class="text-center">
+        <div class="text-6xl font-black
+          {% if pct >= 80 %}text-green-300{% elif pct >= 50 %}text-yellow-300{% else %}text-red-300{% endif %}">
+          {{ pct }}%
+        </div>
+        <div class="text-blue-200 text-sm mt-1">Completitud</div>
+      </div>
+    </div>
+    <!-- Bar -->
+    <div class="mt-5 h-3 bg-white/20 rounded-full overflow-hidden">
+      <div class="h-full rounded-full
+        {% if pct >= 80 %}bg-green-400{% elif pct >= 50 %}bg-yellow-400{% else %}bg-red-400{% endif %}"
+        style="width: {{ pct }}%"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Stat pills -->
+<div class="grid grid-cols-3 gap-4 mb-6">
+  <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 text-center">
+    <div class="text-3xl font-black text-gray-700">{{ total }}</div>
+    <div class="text-xs text-gray-400 font-semibold mt-1">Total rutinas</div>
+  </div>
+  <div class="bg-green-50 rounded-xl border border-green-100 p-4 text-center">
+    <div class="text-3xl font-black text-green-700">{{ cumple }}</div>
+    <div class="text-xs text-green-500 font-semibold mt-1">✅ Cumple</div>
+  </div>
+  <div class="bg-red-50 rounded-xl border border-red-100 p-4 text-center">
+    <div class="text-3xl font-black text-red-700">{{ no_cumple }}</div>
+    <div class="text-xs text-red-500 font-semibold mt-1">❌ No cumple</div>
+  </div>
+</div>
+
+<!-- Detail table -->
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+  <div class="px-5 py-3 border-b border-gray-100 font-bold text-gray-700 text-sm">
+    Detalle de rutinas
+  </div>
+  <table class="w-full text-sm" role="table">
+    <thead class="bg-gray-50">
+      <tr>
+        <th class="px-4 py-2 text-left text-xs tay-400 font-semibold uppercase">#</th>
+        <th class="px-4 py-2 text-left text-xs text-gray-400 font-semibold uppercase">Rutina</th>
+        <th class="px-4 py-2 text-left text-xs text-gray-400 font-semibold uppercase">Categoría</th>
+        <th class="px-4 py-2 text-left text-xs text-gray-400 font-semibold uppercase">Resultado</th>
+        <th class="px-4 py-2 text-left text-xs text-gray-400 font-semibold uppercase">Observación</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-gray-50">
+      {% for resp in respuestas %}
+      <tr class="hover:bg-gray-50">
+        <td class="px-4 py-3 text-gray-400 font-mono text-xs">{{ loop.index }}</td>
+        <td class="px-4 py-3 text-gray-800 text-sm">{{ resp.rutina.descripcion }}</td>
+        <td class="px-4 py-3 text-gray-400 text-xs">{{ resp.rutina.categoria or '—' }}</td>
+        <td class="px-4 py-3">
+          {% if resp.resultado == 'cumple' %}
+          <span class="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-bold">✅ Cumple</span>
+          {% elif resp.resultado == 'no_cumple' %}
+          <span class="px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-bold">❌ No cumple</span>
+          {% else %}
+          <span class="px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full text-xs font-bold">⏳ Pendiente</span>
+          {% endif %}
+        </td>
+        <td class="px-4 py-3 text-gray-500 text-xs italicresp.observacion or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="mt-5 flex justify-between">
+  <a href="/checklist" class="border border-gray-300 text-gray-600 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-gray-50">
+    ← Volver al inicio
+  </a>
+  <a href="/checklist/nuevo" class="bg-walmart-blue text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 transition">
+    + Nuevo Checklist
+  </a>
+</div>
+{% endblock %}

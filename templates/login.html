@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Login — Picker Hunt</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { colors: { walmart: { blue: '#0053e2', spark: '#ffc220' } } } }
+    }
+  </script>
+</head>
+<body class="min-h-screen bg-walmart-blue flex items-center justify-center p-4">
+  <div class="w-full max-w-sm">
+
+    <!-- Store badge -->
+    <div class="text-center mb-4">
+      {% if store == '96' %}
+      <a href="/" class="inline-flex items-center gap-2 bg-walmart-spark text-gray-900
+                         px-4 py-1.5 rounded-full text-sm font-black shadow-md
+                         hover:bg-yellow-400 transition">
+        &larr; Local 96
+      </a>
+      {% else %}
+      <a href="/" class="inline-flex items-center gap-2 bg-white/20 text-white
+                         px-4 py-1.5 rounded-full text-sm font-black shadow-md
+                         hover:bg-white/30 transition">
+        &larr; Local 929
+      </a>
+      {% endif %}
+    </div>
+
+    <div class="bg-white rounded-2xl shadow-2xl w-full p-8">
+      <!-- Logo -->
+      <div class="text-center mb-8">
+        <div class="text-4xl font-black text-walmart-spark mb-2">PH</div>
+        <h1 class="text-2xl font-black text-walmart-blue">Picker Hunt</h1>
+        <p class="text-gray-500 text-sm mt-1">
+          Acceso &mdash;
+          <span class="font-bold {% if store == '96' %}text-yellow-600{% else %}text-walmart-blue{% endif %}">
+            Local {{ store if store else '929' }}
+          </span>
+        </p>
+      </div>
+
+      {% if error %}
+      <div class="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm" role="alert">
+        {{ error }}
+      </div>
+      {% endif %}
+
+      <form method="post" action="/login" class="space-y-4">
+        <!-- Transmite el store al backend para el mensaje de error contextual -->
+        <input type="hidden" name="store" value="{{ store if store else '929' }}"/>
+
+        <div>
+          <label for="username" class="block text-sm font-semibold text-gray-700 mb-1">Usuario</label>
+          <input
+            id="username" name="username" type="text" required autocomplete="username"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-walmart-blue"
+            placeholder="tu_usuario"
+          />
+        </div>
+        <div>
+          <label for="password" class="block text-sm font-semibold text-gray-700 mb-1">Contrasena</label>
+          <input
+            id="password" name="password" type="password" required autocomplete="current-password"
+            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-walmart-blue"
+            placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;"
+          />
+        </div>
+        <button
+          type="submit"
+          class="w-full bg-walmart-blue text-white py-2.5 rounded-lg font-bold text-sm hover:bg-blue-700 transition
+                 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-walmart-blue"
+        >
+          Ingresar a Local {{ store if store else '929' }}
+        </button>
+      </form>
+
+      <div class="text-center mt-4">
+        <a href="/forgot-password"
+           class="text-xs text-walmart-blue hover:underline font-semibold">
+          Olvidaste tu contrasena?
+        </a>
+      </div>
+
+      <div class="text-center mt-3">
+        <a href="/store-select"
+           class="text-xs text-gray-400 hover:text-walmart-blue transition font-medium">
+          Cambiar de tienda
+        </a>
+      </div>
+
+      <p class="text-center text-xs text-gray-400 mt-6">Picker Hunt &copy; 2025 &middot; Walmart</p>
+    </div>
+
+  </div>
+</body>
+</html>

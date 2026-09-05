@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+{% block title %}Mi Resumen del Día — Picker Hunt{% endblock %}
+
+{% block content %}
+<div class="flex flex-col gap-6">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between flex-wrap gap-3">
+    <div>
+      <h1 class="text-2xl font-black text-gray-800">📊 Mi Resumen del Día</h1>
+      <p class="text-sm text-gray-500 mt-0.5">
+        Fecha: <span class="font-bold text-walmart-blue">{{ fecha_hoy }}</span>
+        &nbsp;·&nbsp; Buscador: <span class="font-bold">{{ current_user.name }}</span>
+      </p>
+    </div>
+    <!-- Auto-refresh silencioso cada 60 s -->
+    <span class="text-xs text-gray-400 flex items-center gap-1.5">
+      <span id="refresh-dot" class="inline-block w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
+      Actualiza automáticamente
+    </span>
+  </div>
+
+  <!-- Stats cards -->
+  {% set total_ne  = no_encontrados  | length %}
+  {% set total_cp  = cumplo_protocolo | length %}
+  {% set total_dia = total_ne + total_cp %}
+
+  <div class="grid grid-cols-3 gap-4">
+    <div class="bg-gray-50 border border-gray-200 rounded-2xl p-5 text-center">
+      <div class="text-4xl font-black text-gray-700">{{ total_dia }}</div>
+      <div class="text-xs text-gray-500 font-semibold mt-1 uppercase tracking-wide">Total del día</div>
+    </div>
+    <div class="bg-red-50 border border-red-200 rounded-2xl p-5 text-center">
+      <div class="text-4xl font-black text-red-600">{{ total_ne }}</div>
+      <div class="text-xs text-red-500 font-semibold mt-1 uppercase tracking-wide">❌ No encontrados</div>
+    </div>
+    <div class="bg-orange-50 border border-orange-200 rounded-2xl p-5 text-center">
+      <div class="text-4xl font-black text-orange-600">{{ total_cp }}</div>
+      <div class="text-xs text-orange-500 font-semibold mt-1 uppercase tracking-wide">🚨 Cumplo Protocolo</div>
+    </div>
+  </div>
+
+  <!-- ══ Sección 1: No encontrados ══════════════════════════════════════════ -->
+  <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+    <div class="flex items-center gap-3 px-5 py-4 border-b border-gray-100 bg-red-50">
+      <span class="text-xl">❌</span>
+      <div>
+        <h2 class="font-black text-red-700 text-base">No Encontrados</h2>
+        <p class="text-xs text-red-400">Ítems marcados como no encontrados hoy</p>
+      </div>
+      <span class="ml-auto bg-red-100 text-red-700 font-black text-sm px-3 py-1 rounded-full">
+        {{ total_ne }}
+      </span>
+    </div>
+
+    {% if no_encontrados %}
+    <div class="divide-y divide-gray-50">
+      {% for r in no_encontrados %}
+      <div class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition">
+
+        <!-- Cantidad -->
+        <span class="text-xs font-black bg-red-100 text-red-700 rounded px-1.5 py-0.5 shrink-0">
+          ×{{ r.quantity }}
+        </span>
+
+        <!-- Código -->
+        <span class="font-mono font-black text-walmart-blue text-sm w-20 shrink-0">
+          {{ r.item_code }}
+        </span>
+
+        <!-- Descripción -->
+        <div class="flex-1 min-w-0">
+          <p class="text-sm text-gray-700 font-medium truncate">{{ r.description }}</p>
+          {% if r.responded_by %}
+          <p class="text-xs text-gray-400 truncate">
+            🔍 {{ r.responded_by }}
+            {% if r.comment %} · 💬 {{ r.comment }}{% endif %}
+          </p>
+          {% endif %}
+          {% if r.created_by %}
+          <p class="text-xs text-blue-400 truncate">🛒 {{ r.created_by }}</p>
+          {% endif %}
+        </div>
+
+        <!-- Tiempo usado -->
+        {% if r.time_used_seconds is not none %}
+        <span class="text-xs font-mono text-gray-400 shrink-0">
+          ⏱ {{ format_seconds(r.time_used_seconds) }}
+        </span>
+        {% endif %}
+
+        <!-- Hora cierre -->
+        <time class="text-xs text-gray-300 shrink-0 whitespace-nowrap local-time"
+              data-utc="{{ r.closed_at.isoformat() if r.closed_at else '' }}">
+          {{ r.closed_at.strftime('%H:%M') if r.closed_at else '—' }}
+        </time>
+
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="py-12 text-center text-gray-400">
+      <div class="text-4xl mb-2">🎉</div>
+      <p class="text-sm font-semibold">¡Sin no encontrados hoy!</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ══ Sección 2: Cumplo Protocolo ═══════════════════════════════════════ -->
+  <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+    <div class="flex items-center gap-3 px-5 py-4 border-b border-gray-100 bg-orange-50">
+      <span class="text-xl">🚨</span>
+      <div>
+        <h2 class="font-black text-orange-700 text-base">Cumplo Protocolo</h2>
+        <p class="text-xs text-orange-400">Ítems cerrados por el shopper vía protocolo hoy</p>
+      </div>
+      <span class="ml-auto bg-orange-100 text-orange-700 font-black text-sm px-3 py-1 rounded-full">
+        {{ total_cp }}
+      </span>
+    </div>
+
+    {% if cumplo_protocolo %}
+    <div class="divide-y divide-gray-50">
+      {% for r in cumplo_protocolo %}
+      <div class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition">
+
+        <!-- Cantidad -->
+        <span class="text-xs font-black bg-orange-100 text-orange-700 rounded px-1.5 py-0.5 shrink-0">
+          ×{{ r.quantity }}
+        </span>
+
+        <!-- Código -->
+        <span class="font-mono font-black text-walmart-blue text-sm w-20 shrink-0">
+          {{ r.item_code }}
+        </span>
+
+        <!-- Descripción + shopper -->
+        <div class="flex-1 min-w-0">
+          <p class="text-sm text-gray-700 font-medium truncate">{{ r.description }}</p>
+          {% set shopper_name = (r.responded_by or '') | replace('[Protocolo] ', '') %}
+          {% if shopper_name %}
+          <p class="text-xs text-orange-400 truncate">🛒 Shopper: {{ shopper_name }}</p>
+          {% endif %}
+          {% if r.created_by %}
+          <p class="text-xs text-blue-400 truncate">📋 Creado por: {{ r.created_by }}</p>
+          {% endif %}
+        </div>
+
+        <!-- Tiempo usado -->
+        {% if r.time_used_seconds is not none %}
+        <span class="text-xs font-mono text-gray-400 shrink-0">
+          ⏱ {{ format_seconds(r.time_used_seconds) }}
+        </span>
+        {% endif %}
+
+        <!-- Hora cierre -->
+        <time class="text-xs text-gray-300 shrink-0 whitespace-nowrap local-time"
+              data-utc="{{ r.closed_at.isoformat() if r.closed_at else '' }}">
+          {{ r.closed_at.strftime('%H:%M') if r.closed_at else '—' }}
+        </time>
+
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="py-12 text-center text-gray-400">
+      <div class="text-4xl mb-2">✅</div>
+      <p class="text-sm font-semibold">¡Sin cumplo protocolo hoy!</p>
+    </div>
+    {% endif %}
+  </div>
+
+</div><!-- /flex col -->
+
+<!-- Convierte horas UTC → local del browser -->
+<script>
+(function () {
+  document.querySelectorAll('time.local-time[data-utc]').forEach(function (el) {
+    var iso = el.dataset.utc;
+    if (!iso) return;
+    if (!iso.endsWith('Z') && !iso.includes('+')) iso += 'Z';
+    var d = new Date(iso);
+    if (isNaN(d)) return;
+    el.textContent = d.toLocaleTimeString('es-MX', {
+      hour: '2-digit', minute: '2-digit', hour12: false
+    });
+  });
+
+  // Auto-refresh cada 60 segundos sin perder el contexto
+  setTimeout(function () { location.reload(); }, 60000);
+})();
+</script>
+
+{% endblock %}

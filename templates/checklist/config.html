@@ -1,0 +1,102 @@
+{% extends "checklist/base_checklist.html" %}
+{% block title %}Configuración — Check Rutinas{% endblock %}
+
+{% block content %}
+<div class="text-sm text-gray-500 mb-4">
+  <a href="/checklist" class="text-walmart-blue hover:underline">← Inicio</a>
+  <span class="mx-2 text-gray-300">/</span>
+  <span class="font-bold text-gray-700">Configuración</span>
+</div>
+
+<h1 class="text-2xl font-black text-gray-800 mb-6">⚙️ Configuración</h1>
+
+<div class="grid md:grid-cols-2 gap-6">
+
+  <!-- Locales -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+    <h2 class="font-black text-gray-700 text-base mb-4">🏪 Locales y Secciones</h2>
+
+    <!-- Create local -->
+    <form method="post" action="/checklist/config/local/crear" class="flex gap-2 mb-4">
+      <input name="nombre" type="text" required placeholder="Nuevo local..."
+        class="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-walmart-blue"/>
+      <button type="submit"
+        class="bg-walmart-blue text-white px-3 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 transition">
+        + Local
+      </button>
+    </form>
+
+    {% if locales %}
+    <div class="flex flex-col gap-3">
+      {% for local in locales %}
+      <div class="border border-gray-100 rounded-xl p-3">
+        <div class="font-semibold text-gray-800 text-sm mb-2">🏪 {{ local.nombre }}</div>
+        <!-- Sections -->
+        {% for sec in local.secciones %}
+        <div class="text-xs text-gray-500 pl-3 py-0.5 border-l-2 border-gray-200">{{ sec.nombre }}</div>
+        {% endfor %}
+        <!-- Add section -->
+        <form method="post" action="/checklist/config/local/{{ local.id }}/seccion"
+              class="flex gap-2 mt-2">
+          <input name="nombre" type="text" required placeholder="Nueva sección..."
+            class="flex-1 border border-gray-200 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-walmart-blue"/>
+          <button type="submit"
+            class="bg-gray-100 text-gray-700 px-2 py-1.5 rounded-md text-xs font-bold hover:bg-gray-200 transition">
+            + Sección
+          </button>
+        </form>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="text-sm text-gray-400 text-center py-4">No hay locales aún.</p>
+    {% endif %}
+  </div>
+
+  <!-- Rutinas -->
+  <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+    <h2 class="font-black text-gray-700 text-base mb-4">📋 Rutinas del checklist</h2>
+
+    <!-- Create rutina -->
+    <form method="post" action="/checklist/config/rutina/crear" class="flex flex-col gap-2 mb-4">
+      <input name="descripcion" type="text" required placeholder="Descripción de la rutina      class="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-walmart-blue"/>
+      <div class="flex gap-2">
+        <input name="categoria" type="text" placeholder="Categoría (opcional)"
+          class="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-walmart-blue"/>
+        <button type="submit"
+          class="bg-walmart-blue text-white px-3 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 transition">
+          + Rutina
+        </button>
+      </div>
+    </form>
+
+    <!-- List rutinas -->
+    <div class="flex flex-col gap-2 max-h-96 overflow-y-auto pr-1">
+      {% for r in rutinas %}
+      <div class="flex items-center justify-between gap-2 border border-gray-100 rounded-lg px-3 py-2
+                  {% if r.activo == 'no' %}opacity-40{% endif %}">
+        <div class="flex-1 min-w-0">
+          {% if r.categoria %}
+          <div class="text-xs text-gray-400 uppercase font-semibold">{{ r.categoria }}</div>
+          {% endif %}
+          <div class="text-sm text-gray-700 truncate">{{ r.descripcion }}</div>
+        </div>
+        <form method="post" action="/checklist/config/rutina/{{ r.id }}/toggle">
+          <button type="submit"
+            class="text-xs px-2 py-1 rounded font-bold transition
+              {% if r.activo == 'si' %}bg-green-100 text-green-700 hover:bg-red-100 hover:text-red-700
+              {% else %}bg-gray-100 text-gray-500 hover:bg-green-100 hover:text-green-700{% endif %}">
+            {{ '✅ Activa' if r.activo == 'si' else '❌ Inactiva' }}
+          </button>
+        </form>
+      </div>
+      {% else %}
+      <p class="text-sm text-gray-400 text-center py-4">
+        No hay rutinas. Se crearán las predeterminadas al iniciar el primer checklist.
+      </p>
+      {% endfor %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}
