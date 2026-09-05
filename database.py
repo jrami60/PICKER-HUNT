@@ -17,6 +17,17 @@ import os
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 _is_sqlite = not DATABASE_URL
 
+if not _is_sqlite:
+    # Normalize to the psycopg3 driver regardless of what scheme the user
+    # pasted (Supabase/most dashboards give plain "postgresql://", and old
+    # Heroku-style URLs use "postgres://"). We only install `psycopg`
+    # (v3), not `psycopg2`, so SQLAlchemy's default driver guess would
+    # otherwise blow up at connect time with a confusing ImportError.
+    if DATABASE_URL.startswith("postgres://"):
+        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg://", 1)
+    elif DATABASE_URL.startswith("postgresql://"):
+        DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
+
 if _is_sqlite:
     _db_path = os.getenv("DATABASE_PATH", "./pickerhunt.db")
     DATABASE_URL = f"sqlite:///{_db_path}"
