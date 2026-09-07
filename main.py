@@ -22,6 +22,7 @@ from routers import users as users_router
 from routers import history as history_router
 from routers import password_reset as password_reset_router
 from routers import tareas as tareas_router
+from routers import cron as cron_router
 
 
 # ── App Lifespan ─────────────────────────────────────────────────────
@@ -78,7 +79,9 @@ def _is_browser_request(request: Request) -> bool:
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
     """Redirect to dashboard with a friendly toast instead of raw JSON."""
-    if not _is_browser_request(request):
+    # Cron/API-only endpoints are never hit by an actual browser tab — always
+    # return plain JSON so Vercel Cron logs show the real status, not a 303.
+    if request.url.path.startswith("/cron/") or not _is_browser_request(request):
         return JSONResponse(status_code=exc.status_code,
                             content={"detail": exc.detail})
 
@@ -106,6 +109,7 @@ app.include_router(users_router.router)
 app.include_router(history_router.router)
 app.include_router(password_reset_router.router)
 app.include_router(tareas_router.router)
+app.include_router(cron_router.router)
 
 
 # ── Handler genérico para errores 500 no controlados ───────────────────────

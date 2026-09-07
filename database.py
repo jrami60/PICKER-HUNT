@@ -1,6 +1,6 @@
 """
 Database setup and models for Picker Hunt.
-SQLAlchemy. Postgres (Supabase) in prod, SQLite fallback for local dev.
+SQLAlchemy. Postgres (Neon) in prod, SQLite fallback for local dev.
 """
 from datetime import datetime, timezone
 from sqlalchemy import (
@@ -11,7 +11,14 @@ from sqlalchemy.orm import DeclarativeBase, sessionmaker, relationship
 
 import os
 
-# DATABASE_URL wins if set (e.g. Supabase Postgres connection string).
+from dotenv import load_dotenv
+
+# Load .env into the process environment for local dev. In prod (Vercel)
+# env vars are injected directly by the platform, so this is a harmless
+# no-op there (no .env file ships in the deploy).
+load_dotenv()
+
+# DATABASE_URL wins if set (e.g. Neon Postgres connection string).
 # Falls back to a local SQLite file so `uvicorn main:app` just works
 # out of the box with zero setup.
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
@@ -19,7 +26,7 @@ _is_sqlite = not DATABASE_URL
 
 if not _is_sqlite:
     # Normalize to the psycopg3 driver regardless of what scheme the user
-    # pasted (Supabase/most dashboards give plain "postgresql://", and old
+    # pasted (Neon/most dashboards give plain "postgresql://", and old
     # Heroku-style URLs use "postgres://"). We only install `psycopg`
     # (v3), not `psycopg2`, so SQLAlchemy's default driver guess would
     # otherwise blow up at connect time with a confusing ImportError.
@@ -28,13 +35,23 @@ if not _is_sqlite:
     elif DATABASE_URL.startswith("postgresql://"):
         DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg://", 1)
 
+    # Neon requires TLS. Their dashboard URLs already include ?sslmode=require,
+    # but guard against a pasted-in URL that's missing it (connection would
+    # otherwise fail, or silently fall back to an insecure mode).
+    if "neon.tech" in DATABASE_URL and "sslmode" not in DATABASE_URL:
+        separator = "&" if "?" in DATABASE_URL else "?"
+        DATABASE_URL = f"{DATABASE_URL}{separator}sslmode=require"
+
 if _is_sqlite:
     _db_path = os.getenv("DATABASE_PATH", "./pickerhunt.db")
     DATABASE_URL = f"sqlite:///{_db_path}"
     engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 else:
-    # Supabase (and most managed Postgres) close idle connections — recycle
+    # Neon (and most managed Postgres) close idle connections — recycle
     # proactively and verify liveness before handing out a pooled connection.
+    # If you're on serverless (Vercel), use Neon's "pooled" connection string
+    # (host with a "-pooler" suffix) so short-lived function invocations
+    # don't exhaust Neon's direct connection limit.
     engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_recycle=300)
 
 
@@ -132,7 +149,7 @@ def get_db():
 def create_tables():
     Base.metadata.create_all(bind=engine)
     if _is_sqlite:
-        # Postgres (Supabase) gets its full schema from supabase_schema.sql
+        # Postgres (Neon) gets its full schema from neon_schema.sql
         # up front, so these SQLite-only ALTER TABLE shims don't apply there.
         _migrate_users_table()
         _migrate_items_table()

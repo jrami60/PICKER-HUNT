@@ -1,14 +1,15 @@
 -- ============================================================================
--- Picker Hunt — Supabase (Postgres) schema
+-- Picker Hunt — Neon (Postgres) schema
 -- ============================================================================
--- Run this once in the Supabase SQL editor (or via `psql`) against a fresh
--- project. It creates every table used by database.py.
+-- Run this once against a fresh Neon project — either in the Neon SQL editor
+-- (Console → your project → SQL Editor) or via `psql "$DATABASE_URL" -f neon_schema.sql`.
+-- It creates every table used by database.py.
 --
 -- NOTE ON SEED DATA: you do NOT need to insert admin users here. main.py
 -- calls seed_admin() on every app startup, which creates (idempotently):
 --   - username=admin    password=admin123  store=929   (or $ADMIN_PASSWORD)
 --   - username=admin96  password=admin96   store=96    (or $ADMIN96_PASSWORD)
--- Just point DATABASE_URL at this Supabase project and start the app once.
+-- Just point DATABASE_URL at this Neon project and start the app once.
 -- ============================================================================
 
 -- ── users ────────────────────────────────────────────────────────────────
