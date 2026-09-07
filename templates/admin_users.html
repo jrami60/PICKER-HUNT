@@ -60,7 +60,7 @@
               </span>
             </td>
             <td class="px-4 py-3 flex gap-2">
-              <button onclick="openEditModal({{ u.id }}, '{{ u.name }}', '{{ u.username }}', '{{ u.role }}', '{{ u.status }}', '{{ u.email or '' }}', '{{ u.store or '929' }}')"
+              <button onclick="openEditModal('{{ u.id }}', '{{ u.name }}', '{{ u.username }}', '{{ u.role }}', '{{ u.status }}', '{{ u.email or '' }}', '{{ u.store or '929' }}')"
                 class="text-xs px-3 py-1 border border-walmart-blue text-walmart-blue rounded hover:bg-blue-50 transition"
                 aria-label="Editar {{ u.name }}">
                 Editar

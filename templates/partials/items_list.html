@@ -69,8 +69,8 @@
        data-status="{{ item.status }}"
        data-item-id="{{ item.id }}"
        role="button" tabindex="0"
-       onclick="openDetail({{ item.id }})"
-       onkeydown="if(event.key==='Enter')openDetail({{ item.id }})">
+       onclick="openDetail('{{ item.id }}')"
+       onkeydown="if(event.key==='Enter')openDetail('{{ item.id }}')">
 
     <!-- Priority badge (quantity) -->
     <span class="text-xs font-black rounded px-1 py-0.5 shrink-0
@@ -464,7 +464,7 @@
 
       {# Toggle de acciones #}
       <button type="button"
-              onclick="toggleAdminActions({{ item.id }})"
+              onclick="toggleAdminActions('{{ item.id }}')"
               aria-expanded="false"
               aria-controls="admin-actions-{{ item.id }}"
               class="shrink-0 text-gray-400 hover:text-walmart-blue transition"
