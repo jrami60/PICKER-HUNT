@@ -11,10 +11,9 @@ from datetime import datetime, timezone, timedelta
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from database import Item, ItemHistory, User, create_tables, get_db
+from database import Item, ItemHistory, User, create_tables, get_db, backend
 from auth import seed_admin, get_session_user_id
 from templating import templates
 from routers import items as items_router
@@ -30,10 +29,7 @@ from routers import cron as cron_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     create_tables()
-    from database import SessionLocal
-    db = SessionLocal()
-    seed_admin(db)
-    db.close()
+    seed_admin(backend)
     yield
 
 
@@ -51,11 +47,11 @@ async def health():
 # ── Global error handlers (no más JSON crudo en el browser) ──────────────────
 
 _HTTP_FRIENDLY: dict[int, str] = {
-    401: "⚠️ Sesión expirada. Por favor inicia sesión de nuevo.",
-    403: "🚫 No tienes permisos para realizar esa acción.",
-    404: "🔍 El recurso solicitado no existe.",
-    422: "⚠️ Datos inválidos en el formulario. Intenta de nuevo.",
-    500: "💥 Error interno del servidor. Intenta de nuevo.",
+    401: " Sesión expirada. Por favor inicia sesión de nuevo.",
+    403: " No tienes permisos para realizar esa acción.",
+    404: " El recurso solicitado no existe.",
+    422: " Datos inválidos en el formulario. Intenta de nuevo.",
+    500: " Error interno del servidor. Intenta de nuevo.",
 }
 
 
@@ -89,7 +85,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
         return RedirectResponse("/login", status_code=303)
 
     msg = _HTTP_FRIENDLY.get(exc.status_code,
-                             f"⚠️ Error {exc.status_code}: {exc.detail}")
+                             f" Error {exc.status_code}: {exc.detail}")
     encoded = urllib.parse.quote(msg)
     return RedirectResponse(f"/dashboard?flash={encoded}", status_code=303)
 
@@ -100,7 +96,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     if not _is_browser_request(request):
         return JSONResponse(status_code=422,
                             content={"detail": exc.errors()})
-    msg = urllib.parse.quote("⚠️ Datos inválidos en el formulario. Intenta de nuevo.")
+    msg = urllib.parse.quote(" Datos inválidos en el formulario. Intenta de nuevo.")
     return RedirectResponse(f"/dashboard?flash={msg}", status_code=303)
 
 
@@ -143,7 +139,18 @@ NEW_ITEM_SECONDS = 45  # highlight items newer than this
 NO_ENCONTRADO_TTL = 10 * 60   # segundos que el item permanece visible tras marcarse
 
 
-def _build_items(db: Session, store: str = "929"):
+def _attach_relations(items: list[Item], db) -> None:
+    """Resolve item.creator / item.claimer, mirroring the old SQLAlchemy
+    relationship() attributes so templates don't need to change."""
+    user_ids = {i.created_by_id for i in items if i.created_by_id}
+    user_ids |= {i.claimed_by_id for i in items if i.claimed_by_id}
+    users_by_id = {uid: User.get(db, uid) for uid in user_ids}
+    for item in items:
+        item.creator = users_by_id.get(item.created_by_id)
+        item.claimer = users_by_id.get(item.claimed_by_id)
+
+
+def _build_items(db, store: str = "929"):
     """Return active items for a specific store, sorted by quantity DESC, then created_at DESC.
     Deletes no_encontrado items whose TTL (10 min) ya expiró.
     """
@@ -151,26 +158,22 @@ def _build_items(db: Session, store: str = "929"):
 
     # Limpiar items no_encontrado que ya pasaron los 10 minutos (global, todas las tiendas)
     cutoff = now - timedelta(seconds=NO_ENCONTRADO_TTL)
-    expired = (
-        db.query(Item)
-        .filter(
-            Item.status == "no_encontrado",
-            Item.no_encontrado_at.isnot(None),
-            Item.no_encontrado_at < cutoff,
-        )
-        .all()
+    (
+        Item.query(db)
+        .filter(status="no_encontrado")
+        .filter_not_none("no_encontrado_at")
+        .filter_lt("no_encontrado_at", cutoff)
+        .delete_all()
     )
-    for item in expired:
-        db.delete(item)
-    if expired:
-        db.commit()
 
     items = (
-        db.query(Item)
-        .filter(Item.store == store)
-        .order_by(Item.quantity.desc(), Item.created_at.desc())
+        Item.query(db)
+        .filter(store=store)
+        .order_by("quantity", desc=True)
+        .order_by("created_at", desc=True)
         .all()
     )
+    _attach_relations(items, db)
     for item in items:
         expires = item.expires_at
         if expires.tzinfo is None:
@@ -191,12 +194,12 @@ def _build_items(db: Session, store: str = "929"):
     return items, now
 
 
-def _get_nf_history(db: Session, store: str = "929", limit: int = 30):
+def _get_nf_history(db, store: str = "929", limit: int = 30):
     """Últimos no_encontrado del historial para mostrar en panel shopper."""
     return (
-        db.query(ItemHistory)
-        .filter(ItemHistory.status == "no_encontrado")
-        .order_by(ItemHistory.closed_at.desc())
+        ItemHistory.query(db)
+        .filter(status="no_encontrado")
+        .order_by("closed_at", desc=True)
         .limit(limit)
         .all()
     )
@@ -208,7 +211,7 @@ def _build_shopper_stats(items: list) -> list[dict]:
     Only includes items whose creator has role 'shopper'.
     Returns a list of dicts sorted by total units descending.
     """
-    stats: dict[int, dict] = {}
+    stats: dict[str, dict] = {}
     for item in items:
         if not item.creator or item.creator.role != "shopper":
             continue
@@ -228,24 +231,24 @@ def _build_shopper_stats(items: list) -> list[dict]:
 
 # Human-readable messages for error query params from form redirects
 _ERROR_MESSAGES: dict[str, str] = {
-    "item_no_disponible":   "⚠️ Este ítem ya no está disponible (puede que alguien más lo respondió).",
-    "item_no_encontrado":   "⚠️ Ítem no encontrado. Puede que ya fue cerrado.",
-    "item_no_confirmable":  "⚠️ Este ítem no se puede confirmar (ya fue cerrado o no está en estado Encontrado).",
-    "ya_buscando":          "⚠️ Ya hay alguien buscando ese ítem.",
-    "resultado_invalido":   "⚠️ Resultado inválido. Intenta de nuevo.",
+    "item_no_disponible":   " Este ítem ya no está disponible (puede que alguien más lo respondió).",
+    "item_no_encontrado":   " Ítem no encontrado. Puede que ya fue cerrado.",
+    "item_no_confirmable":  " Este ítem no se puede confirmar (ya fue cerrado o no está en estado Encontrado).",
+    "ya_buscando":          " Ya hay alguien buscando ese ítem.",
+    "resultado_invalido":   " Resultado inválido. Intenta de nuevo.",
 }
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(
     request: Request,
-    db: Session = Depends(get_db),
+    db=Depends(get_db),
 ):
     user_id = get_session_user_id(request)
     if not user_id:
         return RedirectResponse("/login", status_code=303)
 
-    user = db.query(User).filter(User.id == user_id, User.status == "activo").first()
+    user = User.query(db).filter(id=user_id, status="activo").first()
     if not user:
         return RedirectResponse("/login", status_code=303)
 
@@ -278,14 +281,14 @@ async def dashboard(
 @app.get("/dashboard/items", response_class=HTMLResponse)
 async def dashboard_items(
     request: Request,
-    db: Session = Depends(get_db),
+    db=Depends(get_db),
 ):
     """Returns only the items-container fragment for HTMX live updates."""
     user_id = get_session_user_id(request)
     if not user_id:
         return HTMLResponse(status_code=204)  # silently ignore unauthenticated
 
-    user = db.query(User).filter(User.id == user_id, User.status == "activo").first()
+    user = User.query(db).filter(id=user_id, status="activo").first()
     if not user:
         return HTMLResponse(status_code=204)
 

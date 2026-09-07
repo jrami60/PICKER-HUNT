@@ -6,7 +6,6 @@ from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from sqlalchemy.orm import Session
 
 from database import Item, ItemHistory, User, get_db
 from auth import get_current_user, require_role, require_admin
@@ -20,17 +19,18 @@ MAX_IMAGE_BYTES = 3 * 1024 * 1024   # 3 MB (already compressed client-side)
 ALLOWED_MIME    = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 
 
-def _archive_item(item: Item, db: Session, responded_by: str = None,
-                  responded_by_id: int = None, comment: str = None,
+def _archive_item(item: Item, db, responded_by: str = None,
+                  responded_by_id: str = None, comment: str = None,
                   shipping_info: str = None, confirmed_by: str = None) -> None:
-    """Move item to history table."""
+    """Move item to the item_history collection."""
     now = datetime.now(timezone.utc)
     created = item.created_at
     if created.tzinfo is None:
         created = created.replace(tzinfo=timezone.utc)
     elapsed = int((now - created).total_seconds())
 
-    history = ItemHistory(
+    creator = User.get(db, item.created_by_id)
+    ItemHistory(
         item_code=item.code,
         description=item.description,
         quantity=item.quantity,
@@ -43,22 +43,20 @@ def _archive_item(item: Item, db: Session, responded_by: str = None,
         comment=comment,
         shipping_info=shipping_info,
         confirmed_by=confirmed_by,
-        created_by=item.creator.name if item.creator else "Sistema",
-    )
-    db.add(history)
-    db.delete(item)
-    db.commit()
+        created_by=creator.name if creator else "Sistema",
+    ).save(db)
+    item.delete(db)
 
 
 # ── Image endpoint ───────────────────────────────────────────────────────────
 
 @router.get("/items/{item_id}/image")
 async def item_image(
-    item_id: int,
-    db: Session = Depends(get_db),
+    item_id: str,
+    db=Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    item = db.query(Item).filter(Item.id == item_id).first()
+    item = Item.get(db, item_id)
     if not item or not item.image_data:
         raise HTTPException(404, "Imagen no disponible")
     raw  = base64.b64decode(item.image_data)
@@ -76,7 +74,7 @@ async def create_item(
     description: Annotated[str, Form()],
     quantity: Annotated[int, Form()],
     image: Optional[UploadFile] = File(None),
-    db: Session = Depends(get_db),
+    db=Depends(get_db),
     user: User = Depends(require_role("admin", "shopper")),
 ):
     if not CODE_RE.match(code):
@@ -97,7 +95,7 @@ async def create_item(
         image_mime = mime
 
     now = datetime.now(timezone.utc)
-    item = Item(
+    Item(
         code=code,
         description=description,
         quantity=quantity,
@@ -108,10 +106,7 @@ async def create_item(
         image_data=image_data,
         image_mime=image_mime,
         store=user.store or "929",
-    )
-    db.add(item)
-    db.commit()
-    db.refresh(item)
+    ).save(db)
 
     return RedirectResponse("/dashboard", status_code=303)
 
@@ -120,15 +115,14 @@ async def create_item(
 
 @router.post("/items/{item_id}/delete")
 async def delete_item(
-    item_id: int,
-    db: Session = Depends(get_db),
+    item_id: str,
+    db=Depends(get_db),
     user: User = Depends(require_admin),
 ):
-    item = db.query(Item).filter(Item.id == item_id).first()
+    item = Item.get(db, item_id)
     if not item:
         return RedirectResponse("/dashboard?error=item_no_encontrado", status_code=303)
     item.status = "eliminado"
-    db.commit()
     _archive_item(item, db,
                   responded_by=f"[Admin] {user.name}",
                   responded_by_id=user.id,
@@ -141,20 +135,18 @@ async def delete_item(
 @router.post("/items/bulk-delete")
 async def bulk_delete_items(
     request: Request,
-    db: Session = Depends(get_db),
+    db=Depends(get_db),
     user: User = Depends(require_admin),
 ):
     """Delete multiple items at once. Accepts form field 'item_ids' (repeatable)."""
     form = await request.form()
-    raw_ids = form.getlist("item_ids")
-    item_ids = [int(i) for i in raw_ids if i.isdigit()]
+    item_ids = [i for i in form.getlist("item_ids") if i]
     if not item_ids:
         return RedirectResponse("/dashboard", status_code=303)
 
-    items = db.query(Item).filter(Item.id.in_(item_ids)).all()
+    items = Item.query(db).filter_in("id", item_ids).all()
     for item in items:
         item.status = "eliminado"
-        db.commit()
         _archive_item(item, db,
                       responded_by=f"[Admin] {user.name}",
                       responded_by_id=user.id,
@@ -166,15 +158,14 @@ async def bulk_delete_items(
 
 @router.post("/items/{item_id}/force-close")
 async def force_close(
-    item_id: int,
-    db: Session = Depends(get_db),
+    item_id: str,
+    db=Depends(get_db),
     user: User = Depends(require_admin),
 ):
-    item = db.query(Item).filter(Item.id == item_id).first()
+    item = Item.get(db, item_id)
     if not item:
         return RedirectResponse("/dashboard?error=item_no_encontrado", status_code=303)
     item.status = "no_encontrado"
-    db.commit()
     _archive_item(item, db, responded_by=f"[Admin] {user.name}", responded_by_id=user.id)
 
     return RedirectResponse("/dashboard", status_code=303)
@@ -184,37 +175,38 @@ async def force_close(
 
 @router.post("/items/{item_id}/claim")
 async def claim_item(
-    item_id: int,
-    db: Session = Depends(get_db),
+    item_id: str,
+    db=Depends(get_db),
     user: User = Depends(require_role("buscador", "admin")),
 ):
-    item = db.query(Item).filter(Item.id == item_id, Item.status == "pendiente").first()
+    item = Item.query(db).filter(id=item_id, status="pendiente").first()
     if not item:
         return RedirectResponse("/dashboard?error=item_no_disponible", status_code=303)
     if item.claimed_by_id and item.claimed_by_id != user.id:
-        claimer_name = item.claimer.name if item.claimer else "Alguien"
+        claimer = User.get(db, item.claimed_by_id)
+        claimer_name = claimer.name if claimer else "Alguien"
         return RedirectResponse(
             f"/dashboard?error=ya_buscando&quien={claimer_name}", status_code=303
         )
     item.claimed_by_id = user.id
     item.claimed_at = datetime.now(timezone.utc)
-    db.commit()
+    item.save(db)
     return RedirectResponse("/dashboard", status_code=303)
 
 
 @router.post("/items/{item_id}/unclaim")
 async def unclaim_item(
-    item_id: int,
-    db: Session = Depends(get_db),
+    item_id: str,
+    db=Depends(get_db),
     user: User = Depends(require_role("buscador", "admin")),
 ):
-    item = db.query(Item).filter(Item.id == item_id).first()
+    item = Item.get(db, item_id)
     if not item:
         return RedirectResponse("/dashboard?error=item_no_encontrado", status_code=303)
     if item.claimed_by_id == user.id or user.role == "admin":
         item.claimed_by_id = None
         item.claimed_at = None
-        db.commit()
+        item.save(db)
     return RedirectResponse("/dashboard", status_code=303)
 
 
@@ -222,14 +214,14 @@ async def unclaim_item(
 
 @router.post("/items/{item_id}/respond")
 async def respond_item(
-    item_id: int,
+    item_id: str,
     resultado: Annotated[str, Form()],  # "encontrado" | "no_encontrado" | "en_sala"
     comment: Annotated[str, Form()] = "",
     image: Optional[UploadFile] = File(None),
-    db: Session = Depends(get_db),
+    db=Depends(get_db),
     user: User = Depends(require_role("buscador", "admin")),
 ):
-    item = db.query(Item).filter(Item.id == item_id, Item.status == "pendiente").first()
+    item = Item.query(db).filter(id=item_id, status="pendiente").first()
     if not item:
         return RedirectResponse("/dashboard?error=item_no_disponible", status_code=303)
     if resultado not in ("encontrado", "no_encontrado", "en_sala"):
@@ -253,9 +245,9 @@ async def respond_item(
 
     if resultado == "no_encontrado":
         item.no_encontrado_at = datetime.now(timezone.utc)
-    db.commit()
+    item.save(db)
 
-    # no_encontrado se archiva de inmediato; los demás quedan activos para confirmación del shopper
+    # no_encontrado se archiva de inmediato; los demas quedan activos para confirmacion del shopper
     if resultado == "no_encontrado":
         _archive_item(item, db, responded_by=user.name,
                       responded_by_id=user.id, comment=comment)
@@ -263,27 +255,24 @@ async def respond_item(
     return RedirectResponse("/dashboard", status_code=303)
 
 
-# ── Shopper: confirm shipment (ítems encontrado o en_sala) ────────────────────────
+# ── Shopper: confirm shipment (items encontrado o en_sala) ────────────────────────
 
 @router.post("/items/{item_id}/confirm")
 async def confirm_shipment(
-    item_id: int,
+    item_id: str,
     shipping_info: Annotated[str, Form()] = "",
-    db: Session = Depends(get_db),
+    db=Depends(get_db),
     user: User = Depends(require_role("shopper", "admin")),
 ):
-    item = db.query(Item).filter(
-        Item.id == item_id,
-        Item.status.in_(["encontrado", "en_sala"]),
-    ).first()
-    if not item:
+    item = Item.query(db).filter(id=item_id).first()
+    if not item or item.status not in ("encontrado", "en_sala"):
         return RedirectResponse("/dashboard?error=item_no_confirmable", status_code=303)
 
     item.shipping_info = shipping_info
     item.confirmed_by_id = user.id
-    db.commit()
+    item.save(db)
 
-    responded_user = db.query(User).filter(User.id == item.responded_by_id).first()
+    responded_user = User.get(db, item.responded_by_id)
     _archive_item(
         item, db,
         responded_by=responded_user.name if responded_user else None,
@@ -300,12 +289,12 @@ async def confirm_shipment(
 
 @router.post("/items/{item_id}/cancel")
 async def cancel_item(
-    item_id: int,
-    db: Session = Depends(get_db),
+    item_id: str,
+    db=Depends(get_db),
     user: User = Depends(require_role("shopper", "admin")),
 ):
     """Shopper cancels their own pending request. Archives with status 'cancelado'."""
-    item = db.query(Item).filter(Item.id == item_id, Item.status == "pendiente").first()
+    item = Item.query(db).filter(id=item_id, status="pendiente").first()
     if not item:
         return RedirectResponse("/dashboard?error=item_no_disponible", status_code=303)
     # Solo el creador puede cancelar (admin siempre puede)
@@ -313,7 +302,6 @@ async def cancel_item(
         return RedirectResponse("/dashboard?error=sin_permiso", status_code=303)
 
     item.status = "cancelado"
-    db.commit()
     _archive_item(
         item, db,
         responded_by=f"[Cancelado] {user.name}",
@@ -328,8 +316,8 @@ async def cancel_item(
 
 @router.post("/items/{item_id}/cumple-protocolo")
 async def cumple_protocolo(
-    item_id: int,
-    db: Session = Depends(get_db),
+    item_id: str,
+    db=Depends(get_db),
     user: User = Depends(require_role("shopper", "admin")),
 ):
     """Shopper confirms they followed the protocol for a pending/expired item.
@@ -337,17 +325,16 @@ async def cumple_protocolo(
     The item is archived as 'no_encontrado' with a protocol-compliance note.
     This is the only way an expired item leaves the active list.
     """
-    item = db.query(Item).filter(Item.id == item_id, Item.status == "pendiente").first()
+    item = Item.query(db).filter(id=item_id, status="pendiente").first()
     if not item:
         return RedirectResponse("/dashboard?error=item_no_disponible", status_code=303)
 
     item.status = "no_encontrado"
-    db.commit()
     _archive_item(
         item, db,
         responded_by=f"[Protocolo] {user.name}",
         responded_by_id=user.id,
-        comment="Shopper confirmó cumplimiento de protocolo.",
+        comment="Shopper confirmo cumplimiento de protocolo.",
     )
 
     return RedirectResponse("/dashboard", status_code=303)

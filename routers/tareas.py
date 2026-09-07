@@ -5,10 +5,9 @@ from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from sqlalchemy.orm import Session
 
 from database import Tarea, User, get_db
-from auth import get_current_user, require_role
+from auth import require_role
 from templating import templates
 
 router = APIRouter(prefix="/subgerente")
@@ -20,12 +19,13 @@ ALLOWED_MIME    = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 @router.get("/tareas", response_class=HTMLResponse)
 async def list_tareas(
     request: Request,
-    db: Session = Depends(get_db),
+    db=Depends(get_db),
     user: User = Depends(require_role("subgerente", "admin")),
 ):
     tareas = (
-        db.query(Tarea)
-        .order_by(Tarea.fecha_planificacion.desc(), Tarea.creado_en.desc())
+        Tarea.query(db)
+        .order_by("fecha_planificacion", desc=True)
+        .order_by("creado_en", desc=True)
         .all()
     )
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -41,11 +41,11 @@ async def create_tarea(
     descripcion: Annotated[str, Form()],
     fecha_planificacion: Annotated[str, Form()],
     image: Optional[UploadFile] = File(None),
-    db: Session = Depends(get_db),
+    db=Depends(get_db),
     user: User = Depends(require_role("subgerente", "admin")),
 ):
     if not descripcion.strip():
-        raise HTTPException(400, "La descripción no puede estar vacía")
+        raise HTTPException(400, "La descripcion no puede estar vacia")
 
     image_data: Optional[str] = None
     image_mime: Optional[str] = None
@@ -60,60 +60,57 @@ async def create_tarea(
         image_data = base64.b64encode(raw).decode()
         image_mime = mime
 
-    nueva_tarea = Tarea(
+    Tarea(
         descripcion=descripcion.strip(),
         fecha_planificacion=fecha_planificacion,
         estado="pendiente",
         creado_por_id=user.id,
         image_data=image_data,
         image_mime=image_mime,
-    )
-    db.add(nueva_tarea)
-    db.commit()
+    ).save(db)
     return RedirectResponse("/subgerente/tareas", status_code=303)
 
 
 @router.post("/tareas/{tarea_id}/status")
 async def update_tarea_status(
-    tarea_id: int,
+    tarea_id: str,
     estado: Annotated[str, Form()],
-    db: Session = Depends(get_db),
+    db=Depends(get_db),
     user: User = Depends(require_role("subgerente", "admin")),
 ):
     if estado not in ("pendiente", "en_progreso", "completada"):
-        raise HTTPException(400, "Estado inválido")
+        raise HTTPException(400, "Estado invalido")
 
-    tarea = db.query(Tarea).filter(Tarea.id == tarea_id).first()
+    tarea = Tarea.get(db, tarea_id)
     if not tarea:
         raise HTTPException(404, "Tarea no encontrada")
 
     tarea.estado = estado
-    db.commit()
+    tarea.save(db)
     return RedirectResponse("/subgerente/tareas", status_code=303)
 
 
 @router.post("/tareas/{tarea_id}/delete")
 async def delete_tarea(
-    tarea_id: int,
-    db: Session = Depends(get_db),
+    tarea_id: str,
+    db=Depends(get_db),
     user: User = Depends(require_role("subgerente", "admin")),
 ):
-    tarea = db.query(Tarea).filter(Tarea.id == tarea_id).first()
+    tarea = Tarea.get(db, tarea_id)
     if not tarea:
         raise HTTPException(404, "Tarea no encontrada")
 
-    db.delete(tarea)
-    db.commit()
+    tarea.delete(db)
     return RedirectResponse("/subgerente/tareas", status_code=303)
 
 
 @router.get("/tareas/{tarea_id}/image")
 async def get_tarea_image(
-    tarea_id: int,
-    db: Session = Depends(get_db),
+    tarea_id: str,
+    db=Depends(get_db),
     user: User = Depends(require_role("subgerente", "admin", "buscador", "shopper")),
 ):
-    tarea = db.query(Tarea).filter(Tarea.id == tarea_id).first()
+    tarea = Tarea.get(db, tarea_id)
     if not tarea or not tarea.image_data:
         raise HTTPException(404, "Imagen no disponible")
     raw = base64.b64decode(tarea.image_data)

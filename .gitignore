@@ -9,5 +9,13 @@ __pycache__/
 .env
 .vercel
 
+# Firebase service-account credentials -- NEVER commit these (this repo's
+# git history was wiped once already because one of these leaked).
+*serviceAccountKey*.json
+*firebase-adminsdk*.json
+firebase-credentials*.json
+
 # Windows-specific local artifacts that shouldn't follow the repo
 *.log
+cookies*.txt
+_tmp_*

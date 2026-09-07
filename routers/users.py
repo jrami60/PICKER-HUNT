@@ -3,7 +3,6 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse, HTMLResponse
-from sqlalchemy.orm import Session
 
 from database import User, get_db
 from auth import (
@@ -39,10 +38,10 @@ async def do_login(
     username: Annotated[str, Form()],
     password: Annotated[str, Form()],
     store: Annotated[str, Form()] = "929",
-    db: Session = Depends(get_db),
+    db=Depends(get_db),
 ):
     store = store if store in {"929", "96"} else "929"
-    user = db.query(User).filter(User.username == username, User.status == "activo").first()
+    user = User.query(db).filter(username=username, status="activo").first()
     if not user or not verify_password(password, user.password_hash):
         return templates.TemplateResponse(
             request, "login.html",
@@ -82,11 +81,11 @@ async def logout(request: Request):
 @router.get("/admin/users", response_class=HTMLResponse)
 async def list_users(
     request: Request,
-    db: Session = Depends(get_db),
+    db=Depends(get_db),
     user: User = Depends(require_admin),
 ):
     # Admin solo ve usuarios de SU tienda
-    users = db.query(User).filter(User.store == (user.store or "929")).order_by(User.name).all()
+    users = User.query(db).filter(store=(user.store or "929")).order_by("name").all()
     return templates.TemplateResponse(
         request, "admin_users.html",
         {"current_user": user, "users": users, "current_store": user.store or "929"},
@@ -103,17 +102,17 @@ async def create_user(
     role: Annotated[str, Form()],
     email: Annotated[str, Form()] = "",
     store: Annotated[str, Form()] = "929",
-    db: Session = Depends(get_db),
+    db=Depends(get_db),
     current: User = Depends(require_admin),
 ):
     if role not in VALID_ROLES:
         raise HTTPException(400, "Rol invalido")
     # Forzar que el nuevo usuario sea de la misma tienda que el admin que lo crea
     user_store = current.store or "929"
-    existing = db.query(User).filter(User.username == username).first()
+    existing = User.query(db).filter(username=username).first()
     if existing:
         raise HTTPException(400, "Username ya existe")
-    new_user = User(
+    User(
         name=name,
         username=username,
         email=email.strip().lower() or None,
@@ -121,9 +120,7 @@ async def create_user(
         role=role,
         status="activo",
         store=user_store,
-    )
-    db.add(new_user)
-    db.commit()
+    ).save(db)
     return RedirectResponse("/admin/users", status_code=303)
 
 
@@ -131,16 +128,16 @@ async def create_user(
 
 @router.post("/admin/users/{user_id}/edit")
 async def edit_user(
-    user_id: int,
+    user_id: str,
     name: Annotated[str, Form()],
     role: Annotated[str, Form()],
     status: Annotated[str, Form()],
     email: Annotated[str, Form()] = "",
     password: Annotated[str, Form()] = "",
-    db: Session = Depends(get_db),
+    db=Depends(get_db),
     current: User = Depends(require_admin),
 ):
-    target = db.query(User).filter(User.id == user_id).first()
+    target = User.get(db, user_id)
     if not target:
         raise HTTPException(404, "Usuario no encontrado")
     if role not in VALID_ROLES:
@@ -151,7 +148,7 @@ async def edit_user(
     target.email  = email.strip().lower() or None
     if password.strip():
         target.password_hash = hash_password(password)
-    db.commit()
+    target.save(db)
     return RedirectResponse("/admin/users", status_code=303)
 
 
@@ -159,15 +156,14 @@ async def edit_user(
 
 @router.post("/admin/users/{user_id}/delete")
 async def delete_user(
-    user_id: int,
-    db: Session = Depends(get_db),
+    user_id: str,
+    db=Depends(get_db),
     current: User = Depends(require_admin),
 ):
     if user_id == current.id:
         raise HTTPException(400, "No puedes eliminarte a ti mismo")
-    target = db.query(User).filter(User.id == user_id).first()
+    target = User.get(db, user_id)
     if not target:
         raise HTTPException(404, "Usuario no encontrado")
-    db.delete(target)
-    db.commit()
+    target.delete(db)
     return RedirectResponse("/admin/users", status_code=303)

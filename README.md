@@ -6,8 +6,12 @@ completamente aislados entre sí).
 
 ## Stack
 
-- FastAPI + Jinja2 + SQLAlchemy
-- Postgres (Neon) en producción, SQLite local para desarrollo
+- FastAPI + Jinja2
+- Firebase (Firestore) en producción; backend en memoria local si no hay
+  credenciales configuradas (cero setup, datos se borran al reiniciar) — ver
+  `firestore_backend.py` y `database.py`
+- Sin ORM: una capa de acceso a datos chiquita y explícita (no pretende ser
+  SQLAlchemy) compartida por ambos backends
 - Sesiones stateless (cookies firmadas con `itsdangerous`) — sin estado en
   servidor, apto para hosting serverless
 - Actualizaciones en vivo por **polling** (cada 8s), sin WebSocket ni tareas
@@ -20,13 +24,13 @@ completamente aislados entre sí).
 ```bash
 uv venv
 uv pip install -r requirements.txt --index-url https://pypi.ci.artifacts.walmart.com/artifactory/api/pypi/external-pypi/simple --allow-insecure-host pypi.ci.artifacts.walmart.com
-cp .env.example .env   # opcional: sin DATABASE_URL usa SQLite local automáticamente
+cp .env.example .env   # opcional: sin credenciales de Firebase usa un backend en memoria automáticamente
 .venv\Scripts\python.exe -m uvicorn main:app --reload --port 8765
 ```
 
 Abrir http://localhost:8765
 
-### Usuarios de prueba (SQLite local, se crean solos al arrancar)
+### Usuarios de prueba (se crean solos al arrancar, cualquier backend)
 
 | Usuario   | Password   | Tienda | Rol   |
 |-----------|-----------|--------|-------|
@@ -38,15 +42,18 @@ loggeado como admin.
 
 ## Deploy a producción
 
-1. Crear proyecto en [Neon](https://neon.tech), correr `neon_schema.sql`
-   contra tu base (Neon SQL Editor o `psql "$DATABASE_URL" -f neon_schema.sql`).
-   Usá el connection string "pooled" (host con sufijo `-pooler`) para
-   `DATABASE_URL`, ya que Vercel es serverless.
-2. Conectar el repo de GitHub a [Vercel](https://vercel.com).
-3. Configurar variables de entorno en Vercel: `DATABASE_URL`, `SECRET_KEY`,
-   `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `APP_URL`,
-   `CRON_SECRET`.
-4. Deploy. Los admins (929 / 96) se crean solos en el primer arranque.
+1. Crear proyecto en [Firebase Console](https://console.firebase.google.com),
+   activar Firestore (modo nativo, no Datastore).
+2. Generar una cuenta de servicio: Configuración del proyecto → Cuentas de
+   servicio → Generar nueva clave privada (descarga un `.json`). **Nunca
+   commitees ese archivo** — este repo ya perdió un round por eso una vez.
+3. Convertir el JSON a una sola línea y pegarlo en la env var
+   `FIREBASE_CREDENTIALS_JSON` (ver `.env.example` para el comando exacto).
+4. Conectar el repo de GitHub a [Vercel](https://vercel.com).
+5. Configurar variables de entorno en Vercel: `FIREBASE_CREDENTIALS_JSON`,
+   `SECRET_KEY`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`,
+   `APP_URL`, `CRON_SECRET`.
+6. Deploy. Los admins (929 / 96) se crean solos en el primer arranque.
 
 ### Limpieza automática de fotos
 

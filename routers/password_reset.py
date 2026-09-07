@@ -1,15 +1,14 @@
 """
 Password reset flow:
-  GET  /forgot-password          → form to enter email
-  POST /forgot-password          → send reset email
-  GET  /reset-password/{token}   → form to enter new password
-  POST /reset-password/{token}   → save new password
+  GET  /forgot-password          -> form to enter email
+  POST /forgot-password          -> send reset email
+  GET  /reset-password/{token}   -> form to enter new password
+  POST /reset-password/{token}   -> save new password
 """
 import os
 
 from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy.orm import Session
+from fastapi.responses import HTMLResponse
 
 from auth import (
     clear_reset_token,
@@ -41,10 +40,10 @@ async def forgot_password_page(request: Request):
 async def forgot_password_submit(
     request: Request,
     email: str = Form(...),
-    db: Session = Depends(get_db),
+    db=Depends(get_db),
 ):
     # Always show "sent" message to avoid user enumeration
-    user = db.query(User).filter(User.email == email.strip().lower()).first()
+    user = User.query(db).filter(email=email.strip().lower()).first()
 
     if user and user.status == "activo":
         try:
@@ -70,7 +69,7 @@ async def forgot_password_submit(
 async def reset_password_page(
     request: Request,
     token: str,
-    db: Session = Depends(get_db),
+    db=Depends(get_db),
 ):
     user = verify_reset_token(token, db)
     if not user:
@@ -92,7 +91,7 @@ async def reset_password_submit(
     token: str,
     password: str = Form(...),
     password_confirm: str = Form(...),
-    db: Session = Depends(get_db),
+    db=Depends(get_db),
 ):
     user = verify_reset_token(token, db)
     if not user:

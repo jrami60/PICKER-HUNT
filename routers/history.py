@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
-from sqlalchemy.orm import Session
 
 from database import ItemHistory, get_db, User
 from auth import require_admin, require_role
@@ -15,22 +14,20 @@ from templating import templates
 router = APIRouter()
 
 
-def _parse_date_naive(date_str: str, end_of_day: bool = False) -> datetime | None:
-    """Parse 'YYYY-MM-DD' → naive UTC datetime for SQLite comparison.
-
-    SQLite stores DateTime columns without timezone info, so tz-aware
-    datetimes silently break comparisons. We always work in naive UTC.
+def _parse_date_utc(date_str: str, end_of_day: bool = False):
+    """Parse 'YYYY-MM-DD' -> tz-aware UTC datetime (Firestore timestamps are
+    always tz-aware, so comparisons must be too).
     end_of_day=True sets time to 23:59:59 so the full day is included.
     """
     try:
-        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        dt = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
         return dt.replace(hour=23, minute=59, second=59) if end_of_day else dt
     except ValueError:
         return None
 
 
 def _get_history(
-    db: Session,
+    db,
     status: str = None,
     date_from: str = None,
     date_to: str = None,
@@ -39,33 +36,30 @@ def _get_history(
     """Query history with optional filters.
 
     Special status values:
-    - 'cumplo_protocolo'  → no_encontrado rows where responded_by starts with '[Protocolo]'
-    - any other value     → filter by status column directly
+    - 'cumplo_protocolo'  -> no_encontrado rows where responded_by starts with '[Protocolo]'
+    - any other value     -> filter by status field directly
     """
-    q = db.query(ItemHistory).order_by(ItemHistory.closed_at.desc())
+    q = ItemHistory.query(db)
 
     if status == "cumplo_protocolo":
-        q = q.filter(
-            ItemHistory.status == "no_encontrado",
-            ItemHistory.responded_by.like("[Protocolo]%"),
-        )
+        q = q.filter(status="no_encontrado").filter_startswith("responded_by", "[Protocolo]")
     elif status:
-        q = q.filter(ItemHistory.status == status)
+        q = q.filter(status=status)
 
     if item_code:
-        q = q.filter(ItemHistory.item_code.ilike(f"%{item_code}%"))
+        q = q.filter_contains_ci("item_code", item_code)
 
-    if date_from and (dt := _parse_date_naive(date_from)):
-        q = q.filter(ItemHistory.closed_at >= dt)
-    if date_to and (dt := _parse_date_naive(date_to, end_of_day=True)):
-        q = q.filter(ItemHistory.closed_at <= dt)
+    if date_from and (dt := _parse_date_utc(date_from)):
+        q = q.filter_gte("closed_at", dt)
+    if date_to and (dt := _parse_date_utc(date_to, end_of_day=True)):
+        q = q.filter_lte("closed_at", dt)
 
-    return q.all()
+    return q.order_by("closed_at", desc=True).all()
 
 
 def _format_seconds(s: int | None) -> str:
     if s is None:
-        return "—"
+        return "-"
     m, sec = divmod(s, 60)
     return f"{m}m {sec}s"
 
@@ -77,12 +71,12 @@ async def view_history(
     date_from: str = Query(default=""),
     date_to: str = Query(default=""),
     item_code: str = Query(default=""),
-    db: Session = Depends(get_db),
+    db=Depends(get_db),
     user: User = Depends(require_admin),
 ):
     records = _get_history(db, status or None, date_from or None, date_to or None, item_code or None)
 
-    # Pre-compute counts in Python — no Jinja2 regex needed
+    # Pre-compute counts in Python -- no Jinja2 regex needed
     found_count   = sum(1 for r in records if r.status == "encontrado")
     proto_count   = sum(1 for r in records
                         if r.status == "no_encontrado"
@@ -114,17 +108,17 @@ async def export_csv(
     date_from: str = Query(default=""),
     date_to: str = Query(default=""),
     item_code: str = Query(default=""),
-    db: Session = Depends(get_db),
+    db=Depends(get_db),
     _: User = Depends(require_admin),
 ):
     records = _get_history(db, status or None, date_from or None, date_to or None, item_code or None)
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow([
-        "Código", "Descripción", "Cantidad", "Estado",
+        "Codigo", "Descripcion", "Cantidad", "Estado",
         "Creado por", "Respondido por", "Tiempo usado",
-        "Comentario", "Info envío", "Confirmado por",
-        "Fecha creación", "Fecha cierre",
+        "Comentario", "Info envio", "Confirmado por",
+        "Fecha creacion", "Fecha cierre",
     ])
     for r in records:
         writer.writerow([
@@ -149,7 +143,7 @@ async def export_excel(
     date_from: str = Query(default=""),
     date_to: str = Query(default=""),
     item_code: str = Query(default=""),
-    db: Session = Depends(get_db),
+    db=Depends(get_db),
     _: User = Depends(require_admin),
 ):
     import openpyxl
@@ -161,10 +155,10 @@ async def export_excel(
     ws.title = "Historial"
 
     headers = [
-        "Código", "Descripción", "Cantidad", "Estado",
+        "Codigo", "Descripcion", "Cantidad", "Estado",
         "Creado por", "Respondido por", "Tiempo usado",
-        "Comentario", "Info envío", "Confirmado por",
-        "Fecha creación", "Fecha cierre",
+        "Comentario", "Info envio", "Confirmado por",
+        "Fecha creacion", "Fecha cierre",
     ]
     header_fill = PatternFill(start_color="0053E2", end_color="0053E2", fill_type="solid")
     header_font = Font(bold=True, color="FFFFFF")
@@ -199,9 +193,9 @@ async def export_excel(
     )
 
 
-# ── Buscador: resumen del día ─────────────────────────────────────────────────
+# ── Buscador: resumen del dia ─────────────────────────────────────────────────
 
-def _today_bounds_utc() -> tuple[datetime, datetime]:
+def _today_bounds_utc():
     """Return (start_of_today_utc, now_utc) for filtering today's records."""
     now = datetime.now(timezone.utc)
     start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -211,25 +205,23 @@ def _today_bounds_utc() -> tuple[datetime, datetime]:
 @router.get("/buscador/resumen", response_class=HTMLResponse)
 async def buscador_resumen(
     request: Request,
-    db: Session = Depends(get_db),
+    db=Depends(get_db),
     user: User = Depends(require_role("buscador", "admin")),
 ):
     """Daily summary for buscadores: no_encontrado + cumplo-protocolo items."""
     start, now = _today_bounds_utc()
 
     today_records = (
-        db.query(ItemHistory)
-        .filter(
-            ItemHistory.closed_at >= start,
-            ItemHistory.closed_at <= now,
-        )
-        .order_by(ItemHistory.closed_at.desc())
+        ItemHistory.query(db)
+        .filter_gte("closed_at", start)
+        .filter_lte("closed_at", now)
+        .order_by("closed_at", desc=True)
         .all()
     )
 
     # Split by type:
-    # - No encontrados reales (buscador respondió, sin tag [Protocolo])
-    # - Cumplo Protocolo (shopper cerró con protocolo, responded_by tiene [Protocolo])
+    # - No encontrados reales (buscador respondio, sin tag [Protocolo])
+    # - Cumplo Protocolo (shopper cerro con protocolo, responded_by tiene [Protocolo])
     no_encontrados = [
         r for r in today_records
         if r.status == "no_encontrado"
@@ -256,20 +248,20 @@ async def buscador_resumen(
 # ── Admin: productividad por buscador ─────────────────────────────────────────
 
 def _build_productividad(
-    db: Session,
+    db,
     date_from: str = None,
     date_to: str = None,
 ) -> list[dict]:
     """Aggregate ItemHistory per buscador.
-    
+
     A 'real' buscador response is one whose responded_by doesn't start with
     '[' (i.e. not [Admin], [Protocolo], [Cancelado], etc.).
     """
-    q = db.query(ItemHistory)
-    if date_from and (dt := _parse_date_naive(date_from)):
-        q = q.filter(ItemHistory.closed_at >= dt)
-    if date_to and (dt := _parse_date_naive(date_to, end_of_day=True)):
-        q = q.filter(ItemHistory.closed_at <= dt)
+    q = ItemHistory.query(db)
+    if date_from and (dt := _parse_date_utc(date_from)):
+        q = q.filter_gte("closed_at", dt)
+    if date_to and (dt := _parse_date_utc(date_to, end_of_day=True)):
+        q = q.filter_lte("closed_at", dt)
 
     records = q.all()
 
@@ -318,7 +310,7 @@ async def productividad(
     request: Request,
     date_from: str = Query(default=""),
     date_to: str = Query(default=""),
-    db: Session = Depends(get_db),
+    db=Depends(get_db),
     user: User = Depends(require_admin),
 ):
     filas = _build_productividad(db, date_from or None, date_to or None)

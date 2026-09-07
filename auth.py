@@ -9,9 +9,7 @@ from typing import Optional
 
 import bcrypt
 from fastapi import Request, HTTPException, Depends
-from fastapi.responses import RedirectResponse
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
-from sqlalchemy.orm import Session
 
 from database import User, get_db
 
@@ -32,28 +30,17 @@ def verify_password(plain: str, hashed: str) -> bool:
     return bcrypt.checkpw(plain.encode(), hashed.encode())
 
 
-def create_session(user_id: int) -> str:
-    """Create a signed, stateless session token embedding the user id.
-
-    No server-side storage: the token itself is the source of truth, signed
-    with SECRET_KEY so it can't be forged or tampered with. This is what
-    lets sessions survive serverless cold starts / multiple instances.
-    """
+def create_session(user_id: str) -> str:
+    """Create a signed, stateless session token embedding the user id."""
     return _serializer.dumps({"uid": user_id})
 
 
 def destroy_session(token: str) -> None:
-    """No-op: stateless tokens have nothing to revoke server-side.
-
-    Logging out just means the browser stops sending the cookie
-    (see routers/users.py's response.delete_cookie call). Kept as a
-    function so call sites don't need to change if we ever add a
-    server-side revocation list later.
-    """
+    """No-op: stateless tokens have nothing to revoke server-side."""
     pass
 
 
-def get_session_user_id(request: Request) -> Optional[int]:
+def get_session_user_id(request: Request) -> Optional[str]:
     """Read + verify the '__session' cookie, return the user id or None."""
     token = request.cookies.get("__session")
     if not token:
@@ -67,12 +54,12 @@ def get_session_user_id(request: Request) -> Optional[int]:
 
 def get_current_user(
     request: Request,
-    db: Session = Depends(get_db),
+    db=Depends(get_db),
 ) -> User:
     user_id = get_session_user_id(request)
     if not user_id:
         raise HTTPException(status_code=401, detail="No autenticado")
-    user = db.query(User).filter(User.id == user_id, User.status == "activo").first()
+    user = User.query(db).filter(id=user_id, status="activo").first()
     if not user:
         raise HTTPException(status_code=401, detail="Usuario inactivo o no existe")
     return user
@@ -93,7 +80,7 @@ def require_admin(user: User = Depends(get_current_user)) -> User:
     return user
 
 
-def seed_admin(db: Session) -> None:
+def seed_admin(db) -> None:
     """Ensure admin users exist for all stores.
 
     Store 929: username="admin"    | env var ADMIN_PASSWORD  | default "admin123"
@@ -101,55 +88,53 @@ def seed_admin(db: Session) -> None:
     """
     # ── Admin Local 929 ──
     forced_929 = os.getenv("ADMIN_PASSWORD", "").strip()
-    admin929 = db.query(User).filter(User.username == "admin").first()
+    admin929 = User.query(db).filter(username="admin").first()
 
     if admin929 and forced_929:
         admin929.password_hash = hash_password(forced_929)
         admin929.status = "activo"
         admin929.store = "929"
-        db.commit()
+        admin929.save(db)
         print("Admin 929 password actualizado desde ADMIN_PASSWORD.")
     elif not admin929:
         password = forced_929 or "admin123"
-        db.add(User(
+        User(
             name="Administrador L929",
             username="admin",
             password_hash=hash_password(password),
             role="admin",
             status="activo",
             store="929",
-        ))
-        db.commit()
+        ).save(db)
         print("Admin 929 creado.")
     elif admin929 and not admin929.store:
         admin929.store = "929"
-        db.commit()
+        admin929.save(db)
 
     # ── Admin Local 96 ──
     forced_96 = os.getenv("ADMIN96_PASSWORD", "").strip()
-    admin96 = db.query(User).filter(User.username == "admin96").first()
+    admin96 = User.query(db).filter(username="admin96").first()
 
     if admin96 and forced_96:
         admin96.password_hash = hash_password(forced_96)
         admin96.status = "activo"
         admin96.store = "96"
-        db.commit()
+        admin96.save(db)
         print("Admin 96 password actualizado desde ADMIN96_PASSWORD.")
     elif not admin96:
         password = forced_96 or "admin96"
-        db.add(User(
+        User(
             name="Administrador L96",
             username="admin96",
             password_hash=hash_password(password),
             role="admin",
             status="activo",
             store="96",
-        ))
-        db.commit()
+        ).save(db)
         print("Admin 96 creado.")
     elif admin96 and not admin96.store:
         admin96.store = "96"
-        db.commit()
+        admin96.save(db)
 
 
 # ── Password Reset ────────────────────────────────────────────────────────────
@@ -157,18 +142,18 @@ def seed_admin(db: Session) -> None:
 RESET_EXPIRY_HOURS = 1
 
 
-def generate_reset_token(user: User, db: Session) -> str:
-    """Generate a reset token, save it to the user row, return it."""
+def generate_reset_token(user: User, db) -> str:
+    """Generate a reset token, save it to the user doc, return it."""
     token = secrets.token_urlsafe(48)
     user.reset_token = token
     user.reset_expires = datetime.now(timezone.utc) + timedelta(hours=RESET_EXPIRY_HOURS)
-    db.commit()
+    user.save(db)
     return token
 
 
-def verify_reset_token(token: str, db: Session) -> Optional[User]:
+def verify_reset_token(token: str, db) -> Optional[User]:
     """Return the User if token is valid and not expired, else None."""
-    user = db.query(User).filter(User.reset_token == token).first()
+    user = User.query(db).filter(reset_token=token).first()
     if not user or not user.reset_expires:
         return None
     expires = user.reset_expires
@@ -179,10 +164,10 @@ def verify_reset_token(token: str, db: Session) -> Optional[User]:
     return user
 
 
-def clear_reset_token(user: User, db: Session) -> None:
+def clear_reset_token(user: User, db) -> None:
     user.reset_token = None
     user.reset_expires = None
-    db.commit()
+    user.save(db)
 
 
 def send_reset_email(to_email: str, reset_url: str) -> None:
@@ -195,7 +180,7 @@ def send_reset_email(to_email: str, reset_url: str) -> None:
     if not smtp_user or not smtp_pass:
         raise RuntimeError(
             "SMTP_USER y SMTP_PASSWORD no configurados. "
-            "Agregalos como variables de entorno en Cloud Run."
+            "Agregalos como variables de entorno en Vercel."
         )
 
     msg = MIMEMultipart("alternative")
