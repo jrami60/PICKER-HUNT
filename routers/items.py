@@ -15,7 +15,12 @@ router = APIRouter()
 
 COUNTDOWN_MINUTES = 15
 CODE_RE = re.compile(r"^\d{1,7}$")
-MAX_IMAGE_BYTES = 3 * 1024 * 1024   # 3 MB (already compressed client-side)
+# Firestore has a hard 1 MiB per-document cap (not configurable). A photo is
+# stored as base64 (+33% size) INSIDE the item doc, so we keep well under that
+# ceiling to leave room for the other fields and avoid save failures / slow
+# uploads that can trip Vercel's serverless timeout. Client-side JS targets
+# ~550 KB before ever reaching here; this is just the server-side backstop.
+MAX_IMAGE_BYTES = 700 * 1024         # 700 KB raw (~933 KB once base64-encoded)
 ALLOWED_MIME    = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 
 
@@ -90,12 +95,12 @@ async def create_item(
             raise HTTPException(400, f"Tipo de imagen no permitido: {mime}")
         raw = await image.read()
         if len(raw) > MAX_IMAGE_BYTES:
-            raise HTTPException(400, "Imagen muy grande (max 3 MB)")
+            raise HTTPException(400, "Imagen muy grande (max 700 KB, comprimila o probá otra foto)")
         image_data = base64.b64encode(raw).decode()
         image_mime = mime
 
     now = datetime.now(timezone.utc)
-    Item(
+    item = Item(
         code=code,
         description=description,
         quantity=quantity,
@@ -106,7 +111,23 @@ async def create_item(
         image_data=image_data,
         image_mime=image_mime,
         store=user.store or "929",
-    ).save(db)
+    )
+    try:
+        item.save(db)
+    except Exception:
+        # Backstop for any leftover Firestore doc-size/quota failure that
+        # slipped past MAX_IMAGE_BYTES -- retry once without the photo
+        # instead of leaving the shopper with a blank/broken page.
+        if image_data:
+            item.image_data = None
+            item.image_mime = None
+            item.save(db)
+            raise HTTPException(
+                400,
+                "El ítem se creó, pero la foto no se pudo guardar (muy pesada). "
+                "Probá adjuntarla de nuevo con otra foto.",
+            )
+        raise
 
     return RedirectResponse("/dashboard", status_code=303)
 
@@ -245,7 +266,20 @@ async def respond_item(
 
     if resultado == "no_encontrado":
         item.no_encontrado_at = datetime.now(timezone.utc)
-    item.save(db)
+
+    had_image = bool(item.image_data)
+    try:
+        item.save(db)
+    except Exception:
+        # Backstop: si igual se coló un doc demasiado pesado para Firestore,
+        # reintentamos una vez sin la foto en lugar de perder la respuesta
+        # completa del buscador (y sin dejar una pagina rota a mitad de camino).
+        if had_image:
+            item.image_data = None
+            item.image_mime = None
+            item.save(db)
+            return RedirectResponse("/dashboard?error=imagen_muy_grande", status_code=303)
+        raise
 
     # no_encontrado se archiva de inmediato; los demas quedan activos para confirmacion del shopper
     if resultado == "no_encontrado":

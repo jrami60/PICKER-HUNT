@@ -300,15 +300,69 @@ async function handleCreateSubmit(e) {
 }
 
 // ── Image compression ──────────────────────────────────────────────────────────
-const MAX_W = 1280, QUALITY = 0.82;
+// Firestore rechaza documentos de más de 1 MiB (límite duro de la plataforma,
+// no configurable). Una foto se guarda en base64 (+33% de peso) DENTRO del
+// documento del ítem, así que apuntamos a un presupuesto bien por debajo de
+// ese techo para dejar margen a los demás campos (descripción, comentario, etc).
+const MAX_W = 1280;
+const TARGET_BYTES = 550 * 1024;  // ~550 KB crudos -> ~733 KB en base64
 
-let _pendingBlob     = null;  // blob listo para subir
+let _pendingBlob     = null;  // blob listo para subir (form de crear ítem)
 let _compressPromise = null;  // promesa activa de compresión
 let _compressGen     = 0;     // generación — evita race condition entre selecciones
 
 /** canvas.toBlob como promesa — evita el callback hell y permite await. */
 function _blobFromCanvas(canvas, type, quality) {
   return new Promise(resolve => canvas.toBlob(resolve, type, quality));
+}
+
+/** Redimensiona+recodifica un File a un Blob JPEG con el ancho/calidad dados. */
+async function _compressOnce(file, maxW, quality) {
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = e => resolve(e.target.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
+  const img = new Image();
+  img.src = dataUrl;
+  // img.decode() espera decodificación completa en GPU.
+  // Evita el frame negro en iOS/Android.
+  try { await img.decode(); } catch (_) {}
+
+  const canvas = document.getElementById('compress-canvas');
+  let w = img.naturalWidth  || img.width;
+  let h = img.naturalHeight || img.height;
+  if (w > maxW) { h = Math.round(h * maxW / w); w = maxW; }
+  canvas.width = w;
+  canvas.height = h;
+
+  // Fondo blanco — JPEG no soporta transparencia.
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(img, 0, 0, w, h);
+
+  return _blobFromCanvas(canvas, 'image/jpeg', quality);
+}
+
+/**
+ * Comprime iterativamente (bajando calidad, y si hace falta el ancho) hasta
+ * quedar bajo TARGET_BYTES. Así una foto detallada de bodega no revienta el
+ * límite de 1 MiB de Firestore ni hace lenta la subida en Vercel.
+ */
+async function _compressToBudget(file, maxW = MAX_W) {
+  let quality = 0.82;
+  let blob = await _compressOnce(file, maxW, quality);
+  while (blob.size > TARGET_BYTES && quality > 0.35) {
+    quality -= 0.15;
+    blob = await _compressOnce(file, maxW, quality);
+  }
+  if (blob.size > TARGET_BYTES && maxW > 800) {
+    return _compressToBudget(file, 800);
+  }
+  return blob;
 }
 
 function handleImageSelect(input) {
@@ -321,40 +375,8 @@ function handleImageSelect(input) {
 }
 
 async function compressAndPreview(file, gen) {
-  // Leer como DataURL
-  const dataUrl = await new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload  = e => resolve(e.target.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
+  const blob = await _compressToBudget(file);
   // ¿Ya hay una selección más nueva? Silenciosamente abortamos.
-  if (gen !== _compressGen) return;
-
-  const img = new Image();
-  img.src = dataUrl;
-
-  // img.decode() espera decodificación completa en GPU.
-  // Evita el frame negro en iOS/Android.
-  try { await img.decode(); } catch (_) {}
-  if (gen !== _compressGen) return;  // verificar de nuevo tras await
-
-  const canvas = document.getElementById('compress-canvas');
-  let w = img.naturalWidth  || img.width;
-  let h = img.naturalHeight || img.height;
-  if (w > MAX_W) { h = Math.round(h * MAX_W / w); w = MAX_W; }
-  canvas.width = w;
-  canvas.height = h;
-
-  // Fondo blanco — JPEG no soporta transparencia.
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, w, h);
-  ctx.drawImage(img, 0, 0, w, h);
-
-  const blob = await _blobFromCanvas(canvas, 'image/jpeg', QUALITY);
-  // Chequeo final: si el usuario seleccionó OTRA foto mientras comprimíamos,
-  // descartamos este blob obsoleto y NO actualizamos _pendingBlob.
   if (gen !== _compressGen) return;
 
   _pendingBlob     = blob;
@@ -365,6 +387,94 @@ async function compressAndPreview(file, gen) {
   document.getElementById('img-preview-wrap').classList.remove('hidden');
   document.getElementById('img-size-label').textContent =
     'Tamaño: ' + (blob.size / 1024).toFixed(0) + ' KB';
+}
+
+// ── Compresión para la foto del BUSCADOR (form de "Registrar resultado") ────
+// Ese form no pasaba por ningún compresor -- subía la foto de la cámara tal
+// cual (varios MB), lo cual reventaba el límite de Firestore y colgaba la
+// función serverless. Reusa el mismo pipeline de arriba.
+let _pendingRespondBlob     = null;
+let _respondCompressPromise = null;
+let _respondCompressGen     = 0;
+
+function _updateRespondPreview(input, blob) {
+  const preview = input.closest('div')?.querySelector('img.respond-preview');
+  if (!preview) return;
+  if (!blob) {
+    preview.classList.add('hidden');
+    preview.src = '';
+    return;
+  }
+  const url = URL.createObjectURL(blob);
+  preview.src = url;
+  preview.classList.remove('hidden');
+  preview.onload = () => URL.revokeObjectURL(url);
+}
+
+function previewRespondImg(input) {
+  const file = input.files[0];
+  _pendingRespondBlob = null;
+  _respondCompressGen++;
+  if (!file) {
+    _updateRespondPreview(input, null);
+    return;
+  }
+  const gen = _respondCompressGen;
+  _respondCompressPromise = _compressToBudget(file).then(blob => {
+    if (gen !== _respondCompressGen) return;  // se eligió otra foto mientras tanto
+    _pendingRespondBlob     = blob;
+    _respondCompressPromise = null;
+    _updateRespondPreview(input, blob);
+  });
+}
+
+/** Envía el form "Registrar resultado" (buscador) por fetch, con la foto ya
+ * comprimida — igual que handleCreateSubmit, para no reventar Firestore ni
+ * quedar con la pantalla en blanco si la conexión es lenta. */
+async function handleRespondSubmit(event, form) {
+  event.preventDefault();
+  const submitter = event.submitter;
+  const btn = submitter || form.querySelector('button[type="submit"]');
+  if (btn.disabled) return false;
+  const originalText = btn.textContent;
+  btn.disabled = true;
+
+  if (_respondCompressPromise) {
+    btn.textContent = '⏳ Comprimiendo foto...';
+    try { await _respondCompressPromise; } catch (_) {}
+  }
+  btn.textContent = '⏳ Enviando...';
+
+  const fd = new FormData(form);
+  if (submitter?.name === 'resultado') fd.set('resultado', submitter.value);
+  if (_pendingRespondBlob) {
+    fd.set('image', new File([_pendingRespondBlob], 'photo.jpg', { type: 'image/jpeg' }));
+  } else {
+    fd.delete('image');
+  }
+
+  try {
+    const res = await fetch(form.action, {
+      method: 'POST', body: fd, credentials: 'same-origin', redirect: 'follow',
+    });
+    if (!res.ok) {
+      let errMsg = 'Error al registrar el resultado. Intenta de nuevo.';
+      try {
+        const body = await res.json();
+        if (body?.detail) errMsg = body.detail;
+      } catch (_) {}
+      window.showToast(errMsg, '#ea1100');
+      btn.disabled = false;
+      btn.textContent = originalText;
+      return false;
+    }
+    window.location.href = '/dashboard';
+  } catch (_) {
+    window.showToast('Error de red al registrar el resultado. Intenta de nuevo.', '#ea1100');
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
+  return false;
 }
 
 function clearImage() {

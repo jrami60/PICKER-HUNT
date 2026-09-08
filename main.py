@@ -236,6 +236,8 @@ _ERROR_MESSAGES: dict[str, str] = {
     "item_no_confirmable":  " Este ítem no se puede confirmar (ya fue cerrado o no está en estado Encontrado).",
     "ya_buscando":          " Ya hay alguien buscando ese ítem.",
     "resultado_invalido":   " Resultado inválido. Intenta de nuevo.",
+    "tipo_imagen_invalido": " Tipo de imagen no permitido. Usá JPEG, PNG, WEBP o GIF.",
+    "imagen_muy_grande":    " La foto pesa demasiado y no se pudo guardar. Probá de nuevo con otra foto o sin foto.",
 }
 
 

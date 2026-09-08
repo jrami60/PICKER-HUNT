@@ -261,7 +261,8 @@
       <div class="border-t border-gray-100 pt-3">
         <p class="text-xs font-semibold text-gray-500 mb-2">📝 Registrar resultado</p>
         <form method="post" action="/items/{{ item.id }}/respond"
-              enctype="multipart/form-data" class="flex flex-col gap-2">
+              enctype="multipart/form-data" class="flex flex-col gap-2"
+              onsubmit="return handleRespondSubmit(event, this)">
           <textarea name="comment" rows="2" placeholder="Comentario opcional..."
             class="text-sm border border-gray-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-walmart-blue"
             aria-label="Comentario"></textarea>
