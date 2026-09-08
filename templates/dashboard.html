@@ -305,7 +305,7 @@ async function handleCreateSubmit(e) {
 // documento del ítem, así que apuntamos a un presupuesto bien por debajo de
 // ese techo para dejar margen a los demás campos (descripción, comentario, etc).
 const MAX_W = 1280;
-const TARGET_BYTES = 550 * 1024;  // ~550 KB crudos -> ~733 KB en base64
+const TARGET_BYTES = 400 * 1024;  // ~400 KB -- sin base64 en el backend, esto es lo que pesa en Firestore tal cual
 
 let _pendingBlob     = null;  // blob listo para subir (form de crear ítem)
 let _compressPromise = null;  // promesa activa de compresión

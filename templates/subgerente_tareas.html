@@ -110,7 +110,8 @@
       <button onclick="document.getElementById('modal-create-task').classList.add('hidden')"
         class="text-gray-400 hover:text-gray-600 text-2xl leading-none" aria-label="Cerrar">&times;</button>
     </div>
-    <form method="post" action="/subgerente/tareas/create" enctype="multipart/form-data" class="flex flex-col gap-4">
+    <form id="form-create-tarea" method="post" action="/subgerente/tareas/create" enctype="multipart/form-data" class="flex flex-col gap-4"
+          onsubmit="return handleTareaSubmit(event, this)">
       <div>
         <label for="fecha_planificacion" class="block text-sm font-semibold text-gray-700 mb-1">
           Fecha de Planificación <span class="text-red-500">*</span>
@@ -130,18 +131,128 @@
         <label class="block text-sm font-semibold text-gray-700 mb-1">
           Evidencia Fotográfica (Foto)
         </label>
+        <canvas id="tarea-compress-canvas" class="hidden"></canvas>
         <!-- The capture="environment" instructs mobile phones to launch the rear camera immediately! -->
-        <input name="image" type="file" accept="image/*" capture="environment"
+        <input id="tarea-image-input" name="image" type="file" accept="image/*" capture="environment"
+          onchange="handleTareaImageSelect(this)"
           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-walmart-blue bg-white file:mr-4 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200 cursor-pointer"/>
-        <p class="text-xs text-gray-400 mt-1">Saca una foto desde tu celular o sube una imagen.</p>
+        <p id="tarea-image-size" class="text-xs text-gray-400 mt-1">Saca una foto desde tu celular o sube una imagen.</p>
       </div>
       <div class="flex gap-3 pt-2">
         <button type="button" onclick="document.getElementById('modal-create-task').classList.add('hidden')"
           class="flex-1 border border-gray-300 text-gray-700 py-2 rounded-lg font-semibold text-sm hover:bg-gray-50 transition">Cancelar</button>
-        <button type="submit"
+        <button id="btn-tarea-submit" type="submit"
           class="flex-1 bg-walmart-blue text-white py-2 rounded-lg font-semibold text-sm hover:bg-blue-700 transition">Anotar Tarea</button>
       </div>
     </form>
   </div>
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+// Comprime la foto en el celular antes de mandarla -- evita que el backend
+// tenga que procesar/guardar fotos pesadas y se cuelgue con el timeout de
+// la funcion serverless (ver items.py / dashboard.html para el mismo patron).
+const TAREA_TARGET_BYTES = 400 * 1024;
+let _tareaPendingBlob = null;
+let _tareaCompressPromise = null;
+
+function _tareaBlobFromCanvas(canvas, type, quality) {
+  return new Promise(resolve => canvas.toBlob(resolve, type, quality));
+}
+
+async function _tareaCompressOnce(file, maxW, quality) {
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = e => resolve(e.target.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+  const img = new Image();
+  img.src = dataUrl;
+  try { await img.decode(); } catch (_) {}
+  const canvas = document.getElementById('tarea-compress-canvas');
+  let w = img.naturalWidth  || img.width;
+  let h = img.naturalHeight || img.height;
+  if (w > maxW) { h = Math.round(h * maxW / w); w = maxW; }
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(img, 0, 0, w, h);
+  return _tareaBlobFromCanvas(canvas, 'image/jpeg', quality);
+}
+
+async function _tareaCompressToBudget(file, maxW = 1280) {
+  let quality = 0.82;
+  let blob = await _tareaCompressOnce(file, maxW, quality);
+  while (blob.size > TAREA_TARGET_BYTES && quality > 0.35) {
+    quality -= 0.15;
+    blob = await _tareaCompressOnce(file, maxW, quality);
+  }
+  if (blob.size > TAREA_TARGET_BYTES && maxW > 800) {
+    return _tareaCompressToBudget(file, 800);
+  }
+  return blob;
+}
+
+function handleTareaImageSelect(input) {
+  const file = input.files[0];
+  const label = document.getElementById('tarea-image-size');
+  _tareaPendingBlob = null;
+  if (!file) {
+    if (label) label.textContent = 'Saca una foto desde tu celular o sube una imagen.';
+    return;
+  }
+  if (label) label.textContent = 'Comprimiendo foto...';
+  _tareaCompressPromise = _tareaCompressToBudget(file).then(blob => {
+    _tareaPendingBlob = blob;
+    _tareaCompressPromise = null;
+    if (label) label.textContent = 'Foto lista (' + (blob.size / 1024).toFixed(0) + ' KB)';
+  });
+}
+
+async function handleTareaSubmit(event, form) {
+  event.preventDefault();
+  const btn = document.getElementById('btn-tarea-submit');
+  if (btn.disabled) return false;
+  btn.disabled = true;
+  const originalText = btn.textContent;
+
+  if (_tareaCompressPromise) {
+    btn.textContent = 'Comprimiendo foto...';
+    try { await _tareaCompressPromise; } catch (_) {}
+  }
+  btn.textContent = 'Guardando...';
+
+  const fd = new FormData(form);
+  if (_tareaPendingBlob) {
+    fd.set('image', new File([_tareaPendingBlob], 'photo.jpg', { type: 'image/jpeg' }));
+  } else {
+    fd.delete('image');
+  }
+
+  try {
+    const res = await fetch(form.action, {
+      method: 'POST', body: fd, credentials: 'same-origin', redirect: 'follow',
+    });
+    if (!res.ok) {
+      let errMsg = 'Error al guardar la tarea. Intenta de nuevo.';
+      try { const body = await res.json(); if (body?.detail) errMsg = body.detail; } catch (_) {}
+      if (window.showToast) window.showToast(errMsg, '#ea1100');
+      btn.disabled = false;
+      btn.textContent = originalText;
+      return false;
+    }
+    window.location.href = '/subgerente/tareas';
+  } catch (_) {
+    if (window.showToast) window.showToast('Error de red al guardar la tarea. Intenta de nuevo.', '#ea1100');
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
+  return false;
+}
+</script>
 {% endblock %}

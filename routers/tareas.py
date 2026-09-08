@@ -1,5 +1,4 @@
 """Routes for subgerente task planning."""
-import base64
 from datetime import datetime, timezone
 from typing import Annotated, Optional
 
@@ -12,7 +11,11 @@ from templating import templates
 
 router = APIRouter(prefix="/subgerente")
 
-MAX_IMAGE_BYTES = 4 * 1024 * 1024   # 4 MB
+# Firestore has a hard 1 MiB per-document cap. Photos are stored as raw bytes
+# directly (no base64 -- avoids the 33% size penalty and the extra CPU work
+# that could trip Vercel's function timeout). Client-side JS compresses the
+# photo before it ever gets here (see subgerente_tareas.html).
+MAX_IMAGE_BYTES = 800 * 1024   # 800 KB raw
 ALLOWED_MIME    = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 
 
@@ -47,7 +50,7 @@ async def create_tarea(
     if not descripcion.strip():
         raise HTTPException(400, "La descripcion no puede estar vacia")
 
-    image_data: Optional[str] = None
+    image_data: Optional[bytes] = None
     image_mime: Optional[str] = None
 
     if image and image.filename:
@@ -56,18 +59,31 @@ async def create_tarea(
             raise HTTPException(400, f"Tipo de imagen no permitido: {mime}")
         raw = await image.read()
         if len(raw) > MAX_IMAGE_BYTES:
-            raise HTTPException(400, "Imagen muy grande (max 4 MB)")
-        image_data = base64.b64encode(raw).decode()
+            raise HTTPException(400, "Imagen muy grande (max 800 KB, comprimila o probá otra foto)")
+        image_data = raw
         image_mime = mime
 
-    Tarea(
+    tarea = Tarea(
         descripcion=descripcion.strip(),
         fecha_planificacion=fecha_planificacion,
         estado="pendiente",
         creado_por_id=user.id,
         image_data=image_data,
         image_mime=image_mime,
-    ).save(db)
+    )
+    try:
+        tarea.save(db)
+    except Exception:
+        if image_data:
+            tarea.image_data = None
+            tarea.image_mime = None
+            tarea.save(db)
+            raise HTTPException(
+                400,
+                "La tarea se creó, pero la foto no se pudo guardar (muy pesada). "
+                "Probá adjuntarla de nuevo con otra foto.",
+            )
+        raise
     return RedirectResponse("/subgerente/tareas", status_code=303)
 
 
@@ -113,7 +129,7 @@ async def get_tarea_image(
     tarea = Tarea.get(db, tarea_id)
     if not tarea or not tarea.image_data:
         raise HTTPException(404, "Imagen no disponible")
-    raw = base64.b64decode(tarea.image_data)
+    raw = tarea.image_data
     mime = tarea.image_mime or "image/jpeg"
     return Response(content=raw, media_type=mime,
                     headers={"Cache-Control": "max-age=3600"})

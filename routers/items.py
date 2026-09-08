@@ -1,5 +1,4 @@
 """Item routes: create, respond (buscador/shopper), confirm (shopper), force-close (admin)."""
-import base64
 import re
 from datetime import datetime, timezone, timedelta
 from typing import Annotated, Optional
@@ -15,12 +14,13 @@ router = APIRouter()
 
 COUNTDOWN_MINUTES = 15
 CODE_RE = re.compile(r"^\d{1,7}$")
-# Firestore has a hard 1 MiB per-document cap (not configurable). A photo is
-# stored as base64 (+33% size) INSIDE the item doc, so we keep well under that
-# ceiling to leave room for the other fields and avoid save failures / slow
-# uploads that can trip Vercel's serverless timeout. Client-side JS targets
-# ~550 KB before ever reaching here; this is just the server-side backstop.
-MAX_IMAGE_BYTES = 700 * 1024         # 700 KB raw (~933 KB once base64-encoded)
+# Firestore has a hard 1 MiB per-document cap (not configurable). Photos are
+# stored as raw bytes directly on the item doc (no base64 -- that used to add
+# 33% dead weight plus encode/decode CPU time, which on Vercel's Hobby plan
+# was slow enough to trip the function's execution timeout even though the
+# save itself succeeded). Client-side JS targets ~400 KB before ever reaching
+# here; this is just the server-side backstop.
+MAX_IMAGE_BYTES = 800 * 1024         # 800 KB raw, stored as-is (no encoding overhead)
 ALLOWED_MIME    = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 
 
@@ -64,7 +64,7 @@ async def item_image(
     item = Item.get(db, item_id)
     if not item or not item.image_data:
         raise HTTPException(404, "Imagen no disponible")
-    raw  = base64.b64decode(item.image_data)
+    raw  = item.image_data
     mime = item.image_mime or "image/jpeg"
     return Response(content=raw, media_type=mime,
                     headers={"Cache-Control": "max-age=3600"})
@@ -87,7 +87,7 @@ async def create_item(
     if quantity < 1:
         raise HTTPException(400, "Cantidad debe ser >= 1")
 
-    image_data: Optional[str] = None
+    image_data: Optional[bytes] = None
     image_mime: Optional[str] = None
     if image and image.filename:
         mime = image.content_type or "image/jpeg"
@@ -95,8 +95,8 @@ async def create_item(
             raise HTTPException(400, f"Tipo de imagen no permitido: {mime}")
         raw = await image.read()
         if len(raw) > MAX_IMAGE_BYTES:
-            raise HTTPException(400, "Imagen muy grande (max 700 KB, comprimila o probá otra foto)")
-        image_data = base64.b64encode(raw).decode()
+            raise HTTPException(400, "Imagen muy grande (max 800 KB, comprimila o probá otra foto)")
+        image_data = raw
         image_mime = mime
 
     now = datetime.now(timezone.utc)
@@ -261,7 +261,7 @@ async def respond_item(
         raw = await image.read()
         if len(raw) > MAX_IMAGE_BYTES:
             return RedirectResponse("/dashboard?error=imagen_muy_grande", status_code=303)
-        item.image_data = base64.b64encode(raw).decode()
+        item.image_data = raw
         item.image_mime = mime
 
     if resultado == "no_encontrado":
