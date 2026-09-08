@@ -16,8 +16,18 @@ router = APIRouter()
 
 VALID_ROLES   = {"admin", "buscador", "shopper", "subgerente"}
 VALID_STORES  = {"929", "96"}
-# Un subgerente solo puede crear gente de piso, nunca otro mando ni admin.
+# Un subgerente solo puede crear/editar gente de piso, nunca otro mando ni admin.
 SUBGERENTE_CREATABLE_ROLES = {"buscador", "shopper"}
+
+
+def _can_manage_target(current: User, target: User) -> bool:
+    """Admin gestiona a cualquiera de su tienda; un subgerente solo puede
+    editar/eliminar cuentas buscador/shopper que el mismo creo."""
+    if current.role == "admin":
+        return True
+    if current.role == "subgerente":
+        return target.role in SUBGERENTE_CREATABLE_ROLES and target.created_by == current.id
+    return False
 
 
 # ── Auth ───────────────────────────────────────────────────────────────────
@@ -89,12 +99,17 @@ async def list_users(
     # Ve solo usuarios de SU tienda (admin y subgerente por igual)
     users = User.query(db).filter(store=(user.store or "929")).order_by("name").all()
     creatable_roles = VALID_ROLES if user.role == "admin" else SUBGERENTE_CREATABLE_ROLES
+    # Se calcula por-fila: un admin gestiona todo, un subgerente solo lo
+    # que el mismo creo (ver _can_manage_target). El template lee esto de
+    # u.can_manage en vez de reimplementar la regla en Jinja.
+    for u in users:
+        u.can_manage = _can_manage_target(user, u)
     return templates.TemplateResponse(
         request, "admin_users.html",
         {
             "current_user": user, "users": users, "current_store": user.store or "929",
             "creatable_roles": sorted(creatable_roles),
-            "can_manage": user.role == "admin",
+            "show_actions_column": any(u.can_manage for u in users),
         },
     )
 
@@ -129,11 +144,12 @@ async def create_user(
         role=role,
         status="activo",
         store=user_store,
+        created_by=current.id,
     ).save(db)
     return RedirectResponse("/admin/users", status_code=303)
 
 
-# ── Admin: edit user ──────────────────────────────────────────────────────────
+# ── Admin/Subgerente: edit user ─────────────────────────────────────────────
 
 @router.post("/admin/users/{user_id}/edit")
 async def edit_user(
@@ -144,13 +160,17 @@ async def edit_user(
     email: Annotated[str, Form()] = "",
     password: Annotated[str, Form()] = "",
     db=Depends(get_db),
-    current: User = Depends(require_admin),
+    current: User = Depends(require_admin_or_subgerente),
 ):
     target = User.get(db, user_id)
     if not target:
         raise HTTPException(404, "Usuario no encontrado")
+    if not _can_manage_target(current, target):
+        raise HTTPException(403, "No tenes permiso para editar este usuario")
     if role not in VALID_ROLES:
         raise HTTPException(400, "Rol invalido")
+    if current.role == "subgerente" and role not in SUBGERENTE_CREATABLE_ROLES:
+        raise HTTPException(403, "Un subgerente solo puede asignar buscador o shopper")
     target.name   = name
     target.role   = role
     target.status = status
@@ -161,18 +181,20 @@ async def edit_user(
     return RedirectResponse("/admin/users", status_code=303)
 
 
-# ── Admin: delete user ────────────────────────────────────────────────────────
+# ── Admin/Subgerente: delete user ────────────────────────────────────────────
 
 @router.post("/admin/users/{user_id}/delete")
 async def delete_user(
     user_id: str,
     db=Depends(get_db),
-    current: User = Depends(require_admin),
+    current: User = Depends(require_admin_or_subgerente),
 ):
     if user_id == current.id:
         raise HTTPException(400, "No puedes eliminarte a ti mismo")
     target = User.get(db, user_id)
     if not target:
         raise HTTPException(404, "Usuario no encontrado")
+    if not _can_manage_target(current, target):
+        raise HTTPException(403, "No tenes permiso para eliminar este usuario")
     target.delete(db)
     return RedirectResponse("/admin/users", status_code=303)

@@ -29,7 +29,7 @@
             <th class="px-4 py-3 text-left font-semibold">Rol</th>
             <th class="px-4 py-3 text-left font-semibold">Tienda</th>
             <th class="px-4 py-3 text-left font-semibold">Estado</th>
-            {% if can_manage %}
+            {% if show_actions_column %}
             <th class="px-4 py-3 text-left font-semibold">Acciones</th>
             {% endif %}
           </tr>
@@ -61,8 +61,9 @@
                 {{ u.status }}
               </span>
             </td>
-            {% if can_manage %}
+            {% if show_actions_column %}
             <td class="px-4 py-3 flex gap-2">
+              {% if u.can_manage %}
               <button onclick="openEditModal('{{ u.id }}', '{{ u.name }}', '{{ u.username }}', '{{ u.role }}', '{{ u.status }}', '{{ u.email or '' }}', '{{ u.store or '929' }}')"
                 class="text-xs px-3 py-1 border border-walmart-blue text-walmart-blue rounded hover:bg-blue-50 transition"
                 aria-label="Editar {{ u.name }}">
@@ -78,11 +79,14 @@
                 </button>
               </form>
               {% endif %}
+              {% else %}
+              <span class="text-xs text-gray-300 italic">sin acceso</span>
+              {% endif %}
             </td>
             {% endif %}
           </tr>
           {% else %}
-          <tr><td colspan="{{ 7 if can_manage else 6 }}" class="px-4 py-8 text-center text-gray-400">No hay usuarios registrados</td></tr>
+          <tr><td colspan="{{ 7 if show_actions_column else 6 }}" class="px-4 py-8 text-center text-gray-400">No hay usuarios registrados</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -158,10 +162,9 @@
       <div>
         <label class="block text-sm font-semibold text-gray-700 mb-1">Rol</label>
         <select id="edit-role" name="role" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-walmart-blue">
-          <option value="buscador">Buscador</option>
-          <option value="shopper">Shopper</option>
-          <option value="subgerente">Subgerente</option>
-          <option value="admin">Administrador</option>
+          {% for r in creatable_roles %}
+          <option value="{{ r }}">{{ {'buscador': 'Buscador', 'shopper': 'Shopper', 'subgerente': 'Subgerente', 'admin': 'Administrador'}[r] }}</option>
+          {% endfor %}
         </select>
       </div>
       <div>

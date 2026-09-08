@@ -73,6 +73,7 @@ class User(Model):
         "status": "activo",         # activo | inactivo
         "store": "929",             # "929" | "96"
         "created_at": _now,
+        "created_by": None,         # id del usuario que lo creo (None = admin/seed)
         "reset_token": None,
         "reset_expires": None,
     }
