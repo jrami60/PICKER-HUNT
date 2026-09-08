@@ -13,6 +13,7 @@ you can instead point GOOGLE_APPLICATION_CREDENTIALS at a path on disk
 """
 import json
 import os
+import time
 from datetime import datetime, timezone
 
 from dotenv import load_dotenv
@@ -26,8 +27,11 @@ _CREDENTIALS_JSON = os.getenv("FIREBASE_CREDENTIALS_JSON", "").strip()
 
 _is_memory = not (FIREBASE_PROJECT_ID or _CREDENTIALS_JSON or os.getenv("GOOGLE_APPLICATION_CREDENTIALS"))
 
+_init_start = time.monotonic()
 if _is_memory:
     backend = MemoryBackend()
+    print("[startup] Backend: MEMORIA (RAM) -- los datos NO persisten entre reinicios. "
+          "Configura FIREBASE_CREDENTIALS_JSON si esto corre en produccion.")
 else:
     from google.cloud import firestore
     from google.oauth2 import service_account
@@ -42,6 +46,8 @@ else:
         # default metadata credentials if running on GCP infra.
         client = firestore.Client(project=FIREBASE_PROJECT_ID or None)
     backend = FirestoreBackend(client)
+    print(f"[startup] Backend: FIRESTORE real -- cliente inicializado en "
+          f"{(time.monotonic() - _init_start) * 1000:.0f} ms (incluye import de google-cloud-firestore).")
 
 
 def get_db():

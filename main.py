@@ -4,6 +4,7 @@ Dashboard + item routes. Live updates happen via client-side polling
 (see templates/base.html) instead of WebSockets, since serverless hosts
 (Vercel) don't support long-lived connections or background asyncio tasks.
 """
+import time
 import urllib.parse
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
@@ -34,6 +35,21 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Picker Hunt", lifespan=lifespan)
+
+
+# ── Request timing (diagnostico) ────────────────────────────────────────────
+# Log cuanto tarda CADA request. En Vercel esto queda en los logs de la
+# funcion, asi que si algo tarda ~10s (cerca del timeout del plan Hobby)
+# vamos a poder ver a que ruta le pasa y desde cuando, en vez de adivinar.
+
+@app.middleware("http")
+async def log_request_timing(request: Request, call_next):
+    start = time.monotonic()
+    response = await call_next(request)
+    elapsed_ms = (time.monotonic() - start) * 1000
+    print(f"[timing] {request.method} {request.url.path} -> "
+          f"{response.status_code} en {elapsed_ms:.0f} ms")
+    return response
 
 
 # ── Health Check ──────────────────────────────────────────────────────
