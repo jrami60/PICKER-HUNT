@@ -48,9 +48,12 @@
       {% if current_user is defined and current_user %}
       <div class="flex items-center gap-4">
         {% if current_user.role == 'admin' %}
-        <a href="/admin/users"          class="text-white hover:text-walmart-spark text-sm font-medium transition">👥 Usuarios</a>
-        <a href="/admin/history"        class="text-white hover:text-walmart-spark text-sm font-medium transition">📋 Historial</a>
-        <a href="/admin/productividad"  class="text-white hover:text-walmart-spark text-sm font-medium transition">🏆 Productividad</a>
+        <a href="/admin/users"          class="text-white hover:text-walmart-spark text-sm font-medium transition">Usuarios</a>
+        <a href="/admin/history"        class="text-white hover:text-walmart-spark text-sm font-medium transition">Historial</a>
+        <a href="/admin/productividad"  class="text-white hover:text-walmart-spark text-sm font-medium transition">Productividad</a>
+        {% endif %}
+        {% if current_user.role == 'subgerente' %}
+        <a href="/admin/users" class="text-white hover:text-walmart-spark text-sm font-medium transition">Usuarios</a>
         {% endif %}
         {% if current_user.role in ('subgerente', 'admin') %}
         <a href="/subgerente/tareas" class="text-white hover:text-walmart-spark text-sm font-medium transition">📝 Planificación</a>

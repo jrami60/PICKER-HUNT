@@ -80,6 +80,12 @@ def require_admin(user: User = Depends(get_current_user)) -> User:
     return user
 
 
+# Admin y subgerente comparten la pantalla de usuarios, pero con permisos
+# distintos dentro de ella (ver routers/users.py: subgerente solo puede
+# crear buscador/shopper, no editar ni eliminar a nadie).
+require_admin_or_subgerente = require_role("admin", "subgerente")
+
+
 def seed_admin(db) -> None:
     """Ensure admin users exist for all stores.
 

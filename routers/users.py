@@ -8,7 +8,7 @@ from database import User, get_db
 from auth import (
     hash_password, verify_password,
     create_session, destroy_session,
-    get_current_user, require_admin,
+    get_current_user, require_admin, require_admin_or_subgerente,
 )
 from templating import templates
 
@@ -16,6 +16,8 @@ router = APIRouter()
 
 VALID_ROLES   = {"admin", "buscador", "shopper", "subgerente"}
 VALID_STORES  = {"929", "96"}
+# Un subgerente solo puede crear gente de piso, nunca otro mando ni admin.
+SUBGERENTE_CREATABLE_ROLES = {"buscador", "shopper"}
 
 
 # ── Auth ───────────────────────────────────────────────────────────────────
@@ -82,13 +84,18 @@ async def logout(request: Request):
 async def list_users(
     request: Request,
     db=Depends(get_db),
-    user: User = Depends(require_admin),
+    user: User = Depends(require_admin_or_subgerente),
 ):
-    # Admin solo ve usuarios de SU tienda
+    # Ve solo usuarios de SU tienda (admin y subgerente por igual)
     users = User.query(db).filter(store=(user.store or "929")).order_by("name").all()
+    creatable_roles = VALID_ROLES if user.role == "admin" else SUBGERENTE_CREATABLE_ROLES
     return templates.TemplateResponse(
         request, "admin_users.html",
-        {"current_user": user, "users": users, "current_store": user.store or "929"},
+        {
+            "current_user": user, "users": users, "current_store": user.store or "929",
+            "creatable_roles": sorted(creatable_roles),
+            "can_manage": user.role == "admin",
+        },
     )
 
 
@@ -103,11 +110,13 @@ async def create_user(
     email: Annotated[str, Form()] = "",
     store: Annotated[str, Form()] = "929",
     db=Depends(get_db),
-    current: User = Depends(require_admin),
+    current: User = Depends(require_admin_or_subgerente),
 ):
     if role not in VALID_ROLES:
         raise HTTPException(400, "Rol invalido")
-    # Forzar que el nuevo usuario sea de la misma tienda que el admin que lo crea
+    if current.role == "subgerente" and role not in SUBGERENTE_CREATABLE_ROLES:
+        raise HTTPException(403, "Un subgerente solo puede crear buscadores o shoppers")
+    # Forzar que el nuevo usuario sea de la misma tienda que quien lo crea
     user_store = current.store or "929"
     existing = User.query(db).filter(username=username).first()
     if existing:
