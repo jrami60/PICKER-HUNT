@@ -59,8 +59,13 @@ def get_current_user(
     user_id = get_session_user_id(request)
     if not user_id:
         raise HTTPException(status_code=401, detail="No autenticado")
-    user = User.query(db).filter(id=user_id, status="activo").first()
-    if not user:
+    # Lookup directo por id (1 documento) en vez de un query filtrado -- ese
+    # query escaneaba la coleccion COMPLETA de usuarios en cada request
+    # autenticado (login, crear item, eliminar, etc.), lo cual era lento
+    # y, bajo carga/latencia de Firestore, alcanzaba a tirar el timeout de
+    # la funcion serverless en Vercel.
+    user = User.get(db, user_id)
+    if not user or user.status != "activo":
         raise HTTPException(status_code=401, detail="Usuario inactivo o no existe")
     return user
 

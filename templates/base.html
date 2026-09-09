@@ -290,7 +290,12 @@
         try {
           const res = await fetch('/dashboard/items', { credentials: 'same-origin' });
           if (!res.ok) { setDot('error'); return; }
-          container.innerHTML = await res.text();
+          const html = await res.text();
+          // Un 204 (sesion momentaneamente no verificada) o cuerpo vacio no
+          // debe borrar lo que ya esta en pantalla -- solo lo dejamos como
+          // esta y reintentamos en el proximo ciclo de polling.
+          if (!html.trim()) { setDot('error'); return; }
+          container.innerHTML = html;
           _checkNewItems(container);
           setDot('ok');
           // Re-inicializar timers si estamos en el dashboard

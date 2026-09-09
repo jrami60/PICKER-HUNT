@@ -26,15 +26,28 @@ ALLOWED_MIME    = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 
 def _archive_item(item: Item, db, responded_by: str = None,
                   responded_by_id: str = None, comment: str = None,
-                  shipping_info: str = None, confirmed_by: str = None) -> None:
-    """Move item to the item_history collection."""
+                  shipping_info: str = None, confirmed_by: str = None,
+                  creator_cache: dict = None) -> None:
+    """Move item to the item_history collection.
+
+    creator_cache (optional): dict shared across a batch of calls (e.g. bulk
+    delete) so items created by the same shopper don't each pay for their
+    own User.get round-trip to Firestore -- fewer sequential network calls
+    means less chance of tripping Vercel's function timeout on a big batch.
+    """
     now = datetime.now(timezone.utc)
     created = item.created_at
     if created.tzinfo is None:
         created = created.replace(tzinfo=timezone.utc)
     elapsed = int((now - created).total_seconds())
 
-    creator = User.get(db, item.created_by_id)
+    if creator_cache is not None:
+        if item.created_by_id not in creator_cache:
+            creator_cache[item.created_by_id] = User.get(db, item.created_by_id)
+        creator = creator_cache[item.created_by_id]
+    else:
+        creator = User.get(db, item.created_by_id)
+
     ItemHistory(
         item_code=item.code,
         description=item.description,
@@ -138,26 +151,26 @@ async def create_item(
 async def delete_item(
     item_id: str,
     db=Depends(get_db),
-    user: User = Depends(require_admin),
+    user: User = Depends(require_role("admin", "subgerente")),
 ):
     item = Item.get(db, item_id)
     if not item:
         return RedirectResponse("/dashboard?error=item_no_encontrado", status_code=303)
     item.status = "eliminado"
     _archive_item(item, db,
-                  responded_by=f"[Admin] {user.name}",
+                  responded_by=f"[{user.role.capitalize()}] {user.name}",
                   responded_by_id=user.id,
                   comment="Eliminado manualmente por el administrador.")
     return RedirectResponse("/dashboard", status_code=303)
 
 
-# ── Admin: bulk delete ────────────────────────────────────────────────────────
+# ── Admin/Subgerente: bulk delete ───────────────────────────────────────────────
 
 @router.post("/items/bulk-delete")
 async def bulk_delete_items(
     request: Request,
     db=Depends(get_db),
-    user: User = Depends(require_admin),
+    user: User = Depends(require_role("admin", "subgerente")),
 ):
     """Delete multiple items at once. Accepts form field 'item_ids' (repeatable)."""
     form = await request.form()
@@ -166,12 +179,14 @@ async def bulk_delete_items(
         return RedirectResponse("/dashboard", status_code=303)
 
     items = Item.query(db).filter_in("id", item_ids).all()
+    creator_cache: dict = {}
     for item in items:
         item.status = "eliminado"
         _archive_item(item, db,
-                      responded_by=f"[Admin] {user.name}",
+                      responded_by=f"[{user.role.capitalize()}] {user.name}",
                       responded_by_id=user.id,
-                      comment="Eliminado en lote por el administrador.")
+                      comment="Eliminado en lote por el administrador.",
+                      creator_cache=creator_cache)
     return RedirectResponse("/dashboard", status_code=303)
 
 

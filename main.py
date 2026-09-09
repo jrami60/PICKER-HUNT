@@ -266,8 +266,10 @@ async def dashboard(
     if not user_id:
         return RedirectResponse("/login", status_code=303)
 
-    user = User.query(db).filter(id=user_id, status="activo").first()
-    if not user:
+    # Lookup directo por id -- evita escanear toda la coleccion de usuarios
+    # en cada carga del dashboard (ver auth.get_current_user para el detalle).
+    user = User.get(db, user_id)
+    if not user or user.status != "activo":
         return RedirectResponse("/login", status_code=303)
 
     items, now = _build_items(db, store=user.store or "929")
@@ -306,8 +308,8 @@ async def dashboard_items(
     if not user_id:
         return HTMLResponse(status_code=204)  # silently ignore unauthenticated
 
-    user = User.query(db).filter(id=user_id, status="activo").first()
-    if not user:
+    user = User.get(db, user_id)
+    if not user or user.status != "activo":
         return HTMLResponse(status_code=204)
 
     items, now = _build_items(db, store=user.store or "929")
