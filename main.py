@@ -154,6 +154,17 @@ NEW_ITEM_SECONDS = 45  # highlight items newer than this
 
 NO_ENCONTRADO_TTL = 10 * 60   # segundos que el item permanece visible tras marcarse
 
+# El dashboard hace polling cada 8s desde cada dispositivo conectado. Antes,
+# CADA poll disparaba un full-scan + delete_all() de la coleccion Items solo
+# para purgar los no_encontrado vencidos -- con varios buscadores/shoppers
+# con la pantalla abierta eso es un escaneo completo de Firestore varias
+# veces por segundo, sumando latencia (y, bajo carga, chance de pegarle al
+# timeout de la funcion serverless). Throttleado a 1 vez por minuto por
+# instancia: el TTL es de 10 minutos, asi que un atraso de hasta 60s en la
+# purga es imperceptible para el usuario.
+_CLEANUP_INTERVAL_SECONDS = 60
+_last_cleanup_at = 0.0
+
 
 def _attach_relations(items: list[Item], db) -> None:
     """Resolve item.creator / item.claimer, mirroring the old SQLAlchemy
@@ -172,15 +183,19 @@ def _build_items(db, store: str = "929"):
     """
     now = datetime.now(timezone.utc)
 
-    # Limpiar items no_encontrado que ya pasaron los 10 minutos (global, todas las tiendas)
-    cutoff = now - timedelta(seconds=NO_ENCONTRADO_TTL)
-    (
-        Item.query(db)
-        .filter(status="no_encontrado")
-        .filter_not_none("no_encontrado_at")
-        .filter_lt("no_encontrado_at", cutoff)
-        .delete_all()
-    )
+    # Limpiar items no_encontrado que ya pasaron los 10 minutos (global, todas
+    # las tiendas) -- throttleado, ver comentario junto a _CLEANUP_INTERVAL_SECONDS.
+    global _last_cleanup_at
+    if time.monotonic() - _last_cleanup_at >= _CLEANUP_INTERVAL_SECONDS:
+        _last_cleanup_at = time.monotonic()
+        cutoff = now - timedelta(seconds=NO_ENCONTRADO_TTL)
+        (
+            Item.query(db)
+            .filter(status="no_encontrado")
+            .filter_not_none("no_encontrado_at")
+            .filter_lt("no_encontrado_at", cutoff)
+            .delete_all()
+        )
 
     items = (
         Item.query(db)

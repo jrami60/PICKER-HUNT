@@ -11,7 +11,7 @@ import bcrypt
 from fastapi import Request, HTTPException, Depends
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
-from database import User, get_db
+from database import User, get_db, _is_memory
 
 # Stateless signed-cookie sessions — no server-side storage needed, so they
 # survive fine across serverless cold starts / multiple Vercel instances.
@@ -20,6 +20,20 @@ from database import User, get_db
 SECRET_KEY = os.getenv("SECRET_KEY") or secrets.token_urlsafe(32)
 SESSION_MAX_AGE = 60 * 60 * 24 * 30  # 30 days
 _serializer = URLSafeTimedSerializer(SECRET_KEY, salt="picker-hunt-session")
+
+if not os.getenv("SECRET_KEY") and not _is_memory:
+    # CRITICAL, not cosmetic: on Vercel each serverless invocation can land
+    # on a different warm/cold instance. Without a fixed SECRET_KEY every
+    # instance signs cookies with ITS OWN random key, so a session created
+    # on instance A fails signature verification on instance B. Under low
+    # traffic you might not notice (same instance keeps answering); under
+    # load/latency Vercel spins up more concurrent instances, so users get
+    # randomly bounced to /login mid-session. This print is the smoking gun
+    # to look for in `vercel logs` if that's happening.
+    print("[startup] *** CRITICAL: SECRET_KEY no esta seteada mientras se usa "
+          "Firestore real. Las sesiones se van a romper al azar entre "
+          "instancias serverless (eso se ve como 'me bota sin razon'). "
+          "Configura SECRET_KEY en las env vars de Vercel YA. ***")
 
 
 def hash_password(password: str) -> str:

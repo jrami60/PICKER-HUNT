@@ -215,8 +215,8 @@ async def claim_item(
     db=Depends(get_db),
     user: User = Depends(require_role("buscador", "admin")),
 ):
-    item = Item.query(db).filter(id=item_id, status="pendiente").first()
-    if not item:
+    item = Item.get(db, item_id)
+    if not item or item.status != "pendiente":
         return RedirectResponse("/dashboard?error=item_no_disponible", status_code=303)
     if item.claimed_by_id and item.claimed_by_id != user.id:
         claimer = User.get(db, item.claimed_by_id)
@@ -257,8 +257,8 @@ async def respond_item(
     db=Depends(get_db),
     user: User = Depends(require_role("buscador", "admin")),
 ):
-    item = Item.query(db).filter(id=item_id, status="pendiente").first()
-    if not item:
+    item = Item.get(db, item_id)
+    if not item or item.status != "pendiente":
         return RedirectResponse("/dashboard?error=item_no_disponible", status_code=303)
     if resultado not in ("encontrado", "no_encontrado", "en_sala"):
         return RedirectResponse("/dashboard?error=resultado_invalido", status_code=303)
@@ -343,8 +343,8 @@ async def cancel_item(
     user: User = Depends(require_role("shopper", "admin")),
 ):
     """Shopper cancels their own pending request. Archives with status 'cancelado'."""
-    item = Item.query(db).filter(id=item_id, status="pendiente").first()
-    if not item:
+    item = Item.get(db, item_id)
+    if not item or item.status != "pendiente":
         return RedirectResponse("/dashboard?error=item_no_disponible", status_code=303)
     # Solo el creador puede cancelar (admin siempre puede)
     if user.role != "admin" and item.created_by_id != user.id:
@@ -374,8 +374,8 @@ async def cumple_protocolo(
     The item is archived as 'no_encontrado' with a protocol-compliance note.
     This is the only way an expired item leaves the active list.
     """
-    item = Item.query(db).filter(id=item_id, status="pendiente").first()
-    if not item:
+    item = Item.get(db, item_id)
+    if not item or item.status != "pendiente":
         return RedirectResponse("/dashboard?error=item_no_disponible", status_code=303)
 
     item.status = "no_encontrado"
