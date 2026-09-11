@@ -287,6 +287,10 @@
         refreshQueued = false;
         const container = document.getElementById('items-container');
         if (!container) return;
+        // Hook opcional (definido en dashboard.html): guarda checkboxes
+        // tildados / paneles abiertos antes de que el innerHTML los borre.
+        const _adminState = (typeof _captureAdminUiState === 'function')
+          ? _captureAdminUiState() : null;
         try {
           const res = await fetch('/dashboard/items', { credentials: 'same-origin' });
           if (!res.ok) { setDot('error'); return; }
@@ -300,6 +304,8 @@
           setDot('ok');
           // Re-inicializar timers si estamos en el dashboard
           if (typeof initTimers === 'function') initTimers();
+          // Restaurar seleccion/paneles admin que el swap de arriba borro.
+          if (typeof _restoreAdminUiState === 'function') _restoreAdminUiState(_adminState);
         } catch (_) {
           setDot('error');  // red caída — el próximo poll lo reintentará
         }

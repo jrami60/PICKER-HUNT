@@ -634,6 +634,36 @@ function adminSelectAll(checked) {
   adminCheckChanged();
 }
 
+// El polling del dashboard (ver base.html) reemplaza TODO el HTML del
+// contenedor de items cada 8s -- eso incluye los checkboxes de borrado en
+// lote y los paneles de acciones expandidos, que si no, se resetean solos
+// a mitad de una seleccion larga. base.html llama a estos dos hooks (si
+// existen) justo antes/despues de pisar el innerHTML.
+function _captureAdminUiState() {
+  return {
+    checkedIds: _getChecked().map(chk => chk.dataset.id),
+    openPanelIds: [...document.querySelectorAll('[id^="admin-actions-"]')]
+      .filter(panel => !panel.classList.contains('hidden'))
+      .map(panel => panel.id.replace('admin-actions-', '')),
+  };
+}
+
+function _restoreAdminUiState(state) {
+  if (!state) return;
+  state.checkedIds.forEach(id => {
+    const chk = document.querySelector('.admin-item-chk[data-id="' + id + '"]');
+    if (chk) chk.checked = true;
+  });
+  if (state.checkedIds.length) adminCheckChanged();
+  state.openPanelIds.forEach(id => {
+    const panel = document.getElementById('admin-actions-' + id);
+    if (panel && panel.classList.contains('hidden')) {
+      panel.classList.remove('hidden');
+      panel.classList.add('flex');
+    }
+  });
+}
+
 function adminDeleteSelected() {
   const checked = _getChecked();
   if (checked.length === 0) return;
